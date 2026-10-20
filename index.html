@@ -108,8 +108,8 @@ const recipeParts = r => (r.parts||[]).map(p=>{
  return {name:p.name||supply?.name||'',qty:Number(p.qty)||0,amountText:p.amountText||'',unit:p.unit||supply?.unit||'pack',id:p.id||''};
 }).filter(p=>p.name);
 const normal=s=>String(s||'').trim().toLowerCase().replace(/\s+/g,' ');
-const matchSupply=p=>d.items.find(i=>!isShapeStockItem(i)&&((p.id&&i.id===p.id)||normal(i.name)===normal(p.name))&&normal(i.unit||'pack')===normal(p.unit||'pack'));
-const unitOptions=['box','tub','bag','pack','bottle','each','oz','lb','g','kg','cup','tbsp','tsp','ml','l','stick','sheet','other'];
+let matchSupply=p=>d.items.find(i=>!isShapeStockItem(i)&&((p.id&&i.id===p.id)||normal(i.name)===normal(p.name))&&normal(i.unit||'pack')===normal(p.unit||'pack'));
+const unitOptions=['box','tub','bag','pack','bottle','each','oz','lb','g','kg','cup','tbsp','tsp','fl oz','gal','gallon','pint','quart','ml','l','stick','sheet','dozen','other'];
 const numInput=v=>Number.isFinite(Number(v))?Number(v):1;
 // Accept decimals, common fractions, Unicode fractions, and mixed numbers.
 function recipeAmount(value){
@@ -430,5 +430,88 @@ function exportEventCategories(){
  const y=+$('reportYear').value;
  exportCsv('popstock-event-categories-'+y+'.csv',[['Year','Category','Events','Sales','Event costs','Sales less event costs','Pops made','Pops sold','Sell-through %'],...eventCategoriesByYear(y).map(g=>[y,g.category,g.events,g.sales,g.expenses,g.sales-g.expenses,g.made,g.sold,g.made?(100*g.sold/g.made).toFixed(1):0])]);
 }
+
+
+// Standard measurement conversions for recipe needs vs. inventory counts.
+// No conversions are guessed for boxes, bottles, tubs, bags, or other packages.
+const unitConversion={
+ tsp:['volume',1],teaspoon:['volume',1],teaspoons:['volume',1],
+ tbsp:['volume',3],tablespoon:['volume',3],tablespoons:['volume',3],
+ 'fl oz':['volume',6],'fluid oz':['volume',6],'fluid ounce':['volume',6],'fluid ounces':['volume',6],floz:['volume',6],
+ cup:['volume',48],cups:['volume',48],
+ pint:['volume',96],pints:['volume',96],pt:['volume',96],
+ quart:['volume',192],quarts:['volume',192],qt:['volume',192],
+ gallon:['volume',768],gallons:['volume',768],gal:['volume',768],
+ ml:['volume',0.2028841362],milliliter:['volume',0.2028841362],milliliters:['volume',0.2028841362],
+ l:['volume',202.8841362],liter:['volume',202.8841362],liters:['volume',202.8841362],
+ g:['weight',1],gram:['weight',1],grams:['weight',1],
+ kg:['weight',1000],kilogram:['weight',1000],kilograms:['weight',1000],
+ oz:['weight',28.349523125],ounce:['weight',28.349523125],ounces:['weight',28.349523125],
+ lb:['weight',453.59237],lbs:['weight',453.59237],pound:['weight',453.59237],pounds:['weight',453.59237],
+ each:['count',1],item:['count',1],items:['count',1],dozen:['count',12]
+};
+function convertedAmount(quantity,from,to){
+ const a=normal(from),b=normal(to);
+ if(a===b)return quantity;
+ const x=unitConversion[a],y=unitConversion[b];
+ if(!x||!y||x[0]!==y[0])return null;
+ return quantity*x[1]/y[1];
+}
+for(const u of ['fl oz','gal','gallon','pint','quart','dozen'])if(!unitOptions.includes(u))unitOptions.push(u);
+matchSupply=function(p){
+ const matches=d.items.filter(i=>!isShapeStockItem(i)&&((p.id&&i.id===p.id)||normal(i.name)===normal(p.name)));
+ return matches.find(i=>convertedAmount(1,p.unit,i.unit||'pack')!==null);
+};
+// Group requirements in the inventory unit before checking stock or deducting it.
+checkRows=function(lines){
+ const group=new Map();
+ for(const req of requirements(lines)){
+  const i=matchSupply(req),amount=i?convertedAmount(req.required,req.unit,i.unit||'pack'):null;
+  if(i&&amount!==null){
+   const key='s:'+i.id;
+   const r=group.get(key)||{name:i.name,unit:i.unit||'pack',required:0,supply:i,missing:false};
+   r.required+=amount;group.set(key,r);
+  }else{
+   const key='u:'+normal(req.name)+'|'+normal(req.unit);
+   const r=group.get(key)||{name:req.name,unit:req.unit,required:0,supply:null,missing:true,unitMismatch:d.items.some(v=>!isShapeStockItem(v)&&normal(v.name)===normal(req.name))};
+   r.required+=req.required;group.set(key,r);
+  }
+ }
+ return [...group.values()].map(r=>{
+  const have=Number(r.supply?.qty)||0;
+  return {...r,have,buy:Math.max(0,r.required-have)};
+ });
+};
+stockReport=function(lines){
+ const rows=checkRows(lines);
+ return rows.length?rows.map(r=>r.name+': need '+fmt(r.required)+' '+r.unit+
+  (r.missing?(r.unitMismatch?', inventory unit is not convertible':', not in Supplies'):
+   ', have '+fmt(r.have)+' '+r.unit)+
+  (r.buy>0?', buy '+fmt(r.buy)+' '+r.unit:', enough in stock')).join('\n'):
+  'No recipe ingredients found. Check your selected shapes and recipes.';
+};
+progress=function(kind,x){
+ const p=d[kind].find(v=>v.id===x);if(!p||p.status!=='Planned')return;
+ if(!p.lines?.length){alert('Add planned flavors first.');return}
+ for(const a of p.allocations||[]){
+  const fr=d.freezer.find(f=>f.id===a.freezer);
+  if(!fr||fr.qty<a.qty){alert('Reserved freezer stock is unavailable.');return}
+ }
+ const rows=checkRows(freshLines(p));
+ if(rows.some(r=>r.buy>0||!r.supply)){
+  alert('Not enough compatible supplies to start. Review the shopping list.\n\n'+stockReport(freshLines(p)));return;
+ }
+ if(!confirm('Start this plan? Deduct the converted ingredients and reserved freezer pops?'))return;
+ const used={};
+ for(const r of rows){
+  const i=r.supply;
+  i.qty=+Math.max(0,i.qty-r.required).toFixed(8);
+  used[i.id]=(used[i.id]||0)+r.required;
+ }
+ for(const a of p.allocations||[])d.freezer.find(f=>f.id===a.freezer).qty-=a.qty;
+ p.status='In progress';p.deducted=true;p.used=used;p.usedFreezer=p.allocations||[];
+ d.log.push({type:'Plan started',kind,id:x,date:new Date().toISOString(),used,usedFreezer:p.usedFreezer});
+ save();render();
+};
 
 save();render();if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
