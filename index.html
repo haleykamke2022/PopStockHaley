@@ -147,7 +147,13 @@ function updateIngredientUnitSuggestions(input){
  const el=input.closest('.ingredient');if(!el)return;
  const unit=el.querySelector('.ingredient-unit'),list=el.querySelector('datalist');
  if(!unit||!list)return;
- list.innerHTML=suggestedRecipeUnits(input.value).map(u=>'<option value="'+esc(u)+'"></option>').join('');
+ const suggestions=suggestedRecipeUnits(input.value);
+ list.innerHTML=suggestions.map(u=>'<option value="'+esc(u)+'"></option>').join('');
+ const visible=el.querySelector('.unit-suggestions');
+ if(visible){
+   const prioritized=input.value.trim()?suggestions.slice(0,7):['cup','tbsp','tsp','oz','g','each','box'];
+   visible.innerHTML='<span style="display:block;font-size:12px;opacity:.8;margin-bottom:6px">Suggested units — tap to select:</span><div style="display:flex;flex-wrap:wrap;gap:6px">'+prioritized.map(u=>'<button type="button" class="alt" style="padding:7px 11px;font-size:13px;border-radius:20px" onclick="this.closest(\'.ingredient\').querySelector(\'.ingredient-unit\').value=this.textContent;this.closest(\'.ingredient\').querySelector(\'.ingredient-unit\').dataset.userChosen=\'1\';this.closest(\'.ingredient\').querySelector(\'.ingredient-unit\').dispatchEvent(new Event(\'change\',{bubbles:true}))">'+esc(u)+'</button>').join('')+'</div>';
+ }
  if(!unit.dataset.userChosen && !unit.value.trim()){
    const supply=d.items.find(i=>normal(i.name)===normal(input.value));
    if(supply?.unit)unit.value=supply.unit;
@@ -159,7 +165,7 @@ function ingredientRow(p={}){
  const name=p.name||d.items.find(i=>i.id===p.id)?.name||'';
  const unit=p.unit||d.items.find(i=>i.id===p.id)?.unit||'';
  const listId='recipe-units-'+Math.random().toString(36).slice(2);
- el.innerHTML=`<label>Ingredient name</label><input class="ingredient-name" placeholder="e.g. Vanilla cake mix" value="${esc(name)}" oninput="updateIngredientUnitSuggestions(this)"><div class="formgrid"><div><label>Amount Used</label><input class="ingredient-qty" type="text" inputmode="text" autocomplete="off" placeholder="1/4, 1/2, 1 1/2, or 0.25" value="${esc(p.amountText||(p.qty??''))}"></div><div><label>Unit</label><input class="ingredient-unit" list="${listId}" placeholder="Start typing or choose a unit" value="${esc(unit)}" oninput="this.dataset.userChosen='1'"><datalist id="${listId}"></datalist></div></div><button type="button" class="alt" style="margin-top:7px" onclick="this.parentElement.remove()">Remove ingredient</button>`;
+ el.innerHTML=`<label>Ingredient name</label><input class="ingredient-name" placeholder="e.g. Vanilla cake mix" value="${esc(name)}" oninput="updateIngredientUnitSuggestions(this)"><div class="formgrid"><div><label>Amount Used</label><input class="ingredient-qty" type="text" inputmode="text" autocomplete="off" placeholder="1/4, 1/2, 1 1/2, or 0.25" value="${esc(p.amountText||(p.qty??''))}"></div><div><label>Unit</label><input class="ingredient-unit" list="${listId}" placeholder="Start typing or choose a unit" value="${esc(unit)}" oninput="this.dataset.userChosen='1'"><datalist id="${listId}"></datalist></div></div><div class="unit-suggestions" style="margin-top:9px;margin-bottom:8px"></div><button type="button" class="alt" style="margin-top:7px" onclick="this.parentElement.remove()">Remove ingredient</button>`;
  $('ingredients').append(el);updateIngredientUnitSuggestions(el.querySelector('.ingredient-name'));
 }
 partRow=ingredientRow;
