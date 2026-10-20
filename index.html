@@ -304,4 +304,100 @@ renderSettings=function(){
   renderSettingsBeforeFeedback();
   $('settings').insertAdjacentHTML('beforeend', `<div class="card"><h3>💬 Help & Feedback</h3><p class="muted small">Found a bug, have an idea, or want to suggest an improvement? Tell us through the PopStock feedback form. The form opens in your browser and requires internet access.</p><a href="${POPSTOCK_FEEDBACK_URL}" target="_blank" rel="noopener noreferrer" style="display:inline-block;background:var(--brand,#b56b91);color:white;border-radius:11px;padding:12px 15px;font:600 14px system-ui;text-decoration:none">💬 Send Feedback / Report a Problem ↗</a></div>`);
 };
+
+// Event report photo review and category summaries (no changes to stored data keys).
+const eventCategoryNames=['Market / Vendor Event','Pop-Up','Festival / Fair','Private Event','Wholesale Event','Other'];
+const originalEventReport=eventReport;
+eventReport=function(x){
+ originalEventReport(x);
+ const p=d.events.find(a=>a.id===x),f=$('dialogBody')?.querySelector('form'),status=$('posStatus');
+ if(!p||!f||!status)return;
+ const div=document.createElement('div');div.className='pair';
+ div.innerHTML='<label>Event category (year-end reports)</label><select name="eventCategory">'+eventCategoryNames.map(c=>'<option value="'+esc(c)+'" '+((p.eventCategory||'Market / Vendor Event')===c?'selected':'')+'>'+esc(c)+'</option>').join('')+'</select>';
+ f.querySelector('.notice')?.insertAdjacentElement('afterend',div);
+ const controls=document.createElement('div');
+ controls.innerHTML='<button type="button" class="alt" onclick="previewEventPhotoData()">Review data from photo</button><div id="eventPhotoReview" style="margin-top:10px"></div>';
+ status.insertAdjacentElement('afterend',controls);
+};
+const originalReadPOSPhoto=readPOSPhoto;
+readPOSPhoto=async function(input){
+ await originalReadPOSPhoto(input);
+ const box=$('eventPhotoReview');if(box)box.textContent='';
+ const status=$('posStatus');
+ if(status&&$('posExtract')?.value.trim())status.textContent='Photo text extracted. Review or correct it, then tap “Review data from photo”.';
+};
+function eventPhotoData(text){
+ const lines=String(text||'').split(/\n/).map(v=>v.replace(/\s+/g,' ').trim()).filter(Boolean),sales=[],sold=[];
+ for(const line of lines){
+  if(/\b(tax|tip|discount|fee|refund|expense|net profit|net sales|cash drawer|change)\b/i.test(line))continue;
+  const total=line.match(/^(?:gross\s+sales|total\s+sales|total\s+revenue|gross\s+revenue|sales\s+total|sales|total\s+collected|total)\s*[:=\-]?\s*\$?\s*(\d[\d,]*(?:\.\d{1,2})?)\s*$/i);
+  if(total){const value=Number(total[1].replace(/,/g,''));if(Number.isFinite(value))sales.push(value);continue}
+  const after=line.match(/^(.+?)\s*(?:sold|qty|quantity|units)\s*[:=\-]?\s*(\d+)\s*$/i);
+  const before=line.match(/^(\d+)\s*(?:x|×)?\s+(.+?)(?:\s+sold)?$/i);
+  if(after)sold.push({name:after[1].trim(),qty:Number(after[2])});
+  else if(before&&!/\d{4}|total|sales|orders/i.test(line))sold.push({name:before[2].trim(),qty:Number(before[1])});
+ }
+ return {sales,sold};
+}
+let pendingEventPhoto=null;
+function previewEventPhotoData(){
+ const box=$('eventPhotoReview'),raw=$('posExtract')?.value||'';if(!box)return;
+ const parsed=eventPhotoData(raw),normalizeName=s=>normal(s).replace(/[^a-z0-9 ]/g,'').trim(),rows=[];
+ for(const el of document.querySelectorAll('.report-row')){
+  const f=normalizeName(flavorName(el.dataset.flavor)),shape=normalizeName(shapeName(el.dataset.shape));
+  const matches=parsed.sold.filter(a=>{const n=normalizeName(a.name);return n===f||n===f+' '+shape||n===shape+' '+f});
+  if(matches.length===1)rows.push({el,qty:matches[0].qty,flavor:flavorName(el.dataset.flavor)});
+ }
+ const unique=[...new Set(parsed.sales)];const sales=unique.length===1?unique[0]:null;
+ pendingEventPhoto=null;
+ if(sales===null&&!rows.length){box.textContent='No clearly labeled sales total or matching flavor quantities found. Correct the extracted text or enter the results manually; no event numbers were changed.';return}
+ pendingEventPhoto={sales,rows};
+ box.innerHTML='<div class="notice"><strong>Photo suggestions — verify before applying</strong><p>'+(sales!==null?'Sales: '+money(sales):'No clear sales total')+'</p><p>'+rows.map(v=>esc(v.flavor)+': '+v.qty+' sold').join(' · ')+'</p><p class="small">Confirm the screenshot only includes this event. Unmatched figures are not applied.</p><button type="button" class="alt" onclick="applyEventPhotoData()">Apply these suggestions</button></div>';
+}
+function applyEventPhotoData(){
+ if(!pendingEventPhoto)return;
+ const {sales,rows}=pendingEventPhoto;pendingEventPhoto=null;
+ if(sales!==null){const input=$('dialogBody')?.querySelector('input[name="sales"]');if(input)input.value=sales}
+ const skipped=[];
+ for(const {el,qty,flavor} of rows){
+  const made=Number(el.querySelector('.made').value),frozen=Number(el.querySelector('.frozen').value),other=Number(el.querySelector('.other').value);
+  if(qty>made||qty+frozen+other>made){skipped.push(flavor);continue}
+  el.querySelector('.sold').value=qty;
+ }
+ $('eventPhotoReview').textContent='Suggestions filled in, NOT saved. '+(skipped.length?'Skipped invalid amounts for '+skipped.join(', ')+'. ':'')+'Verify the sales and flavors, then Save event report.';
+}
+const originalSaveEventReport=saveEventReport;
+saveEventReport=function(e,x){
+ const p=d.events.find(v=>v.id===x);
+ if(p&&e.target.elements.eventCategory)p.eventCategory=e.target.elements.eventCategory.value;
+ return originalSaveEventReport(e,x);
+};
+function eventCategoriesByYear(y){
+ const groups=new Map();
+ for(const p of yearData(y).events){
+  const category=p.eventCategory||'Uncategorized (older events)';
+  if(!groups.has(category))groups.set(category,{category,events:0,sales:0,expenses:0,made:0,sold:0});
+  const g=groups.get(category);g.events++;g.sales+=num(p.report.sales);g.expenses+=eventExpenses(p);
+  for(const r of p.report.rows||[]){g.made+=num(r.made);g.sold+=num(r.sold)}
+ }
+ return [...groups.values()].sort((a,b)=>a.category.localeCompare(b.category));
+}
+const originalUpdateAnnual=updateAnnual;
+updateAnnual=function(){
+ originalUpdateAnnual();
+ const y=+$('reportYear')?.value,el=$('annualSummary');if(!el||!Number.isFinite(y))return;
+ const groups=eventCategoriesByYear(y);
+ el.insertAdjacentHTML('beforeend','<h4>Events by category</h4>'+(groups.length?'<div style="overflow-x:auto"><table style="width:100%"><thead><tr><th>Category</th><th>Events</th><th>Sales</th><th>Event costs</th><th>After event costs</th><th>Pops sold</th><th>Sell-through</th></tr></thead><tbody>'+groups.map(g=>'<tr><td>'+esc(g.category)+'</td><td>'+g.events+'</td><td>'+money(g.sales)+'</td><td>'+money(g.expenses)+'</td><td>'+money(g.sales-g.expenses)+'</td><td>'+g.sold+'</td><td>'+(g.made?(100*g.sold/g.made).toFixed(1):'0')+'%</td></tr>').join('')+'</tbody></table></div>':'<p class="muted">No completed event reports for this year.</p>'));
+};
+const originalRenderBusiness=renderBusiness;
+renderBusiness=function(){
+ originalRenderBusiness();
+ const card=$('annualSummary')?.closest('.card');if(!card)return;
+ const button=document.createElement('button');button.type='button';button.className='alt';button.textContent='Export event categories CSV';button.onclick=exportEventCategories;card.append(button);
+};
+function exportEventCategories(){
+ const y=+$('reportYear').value;
+ exportCsv('popstock-event-categories-'+y+'.csv',[['Year','Category','Events','Sales','Event costs','Sales less event costs','Pops made','Pops sold','Sell-through %'],...eventCategoriesByYear(y).map(g=>[y,g.category,g.events,g.sales,g.expenses,g.sales-g.expenses,g.made,g.sold,g.made?(100*g.sold/g.made).toFixed(1):0])]);
+}
+
 save();render();if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
