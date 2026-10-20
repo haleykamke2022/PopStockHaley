@@ -111,27 +111,99 @@ const normal=s=>String(s||'').trim().toLowerCase().replace(/\s+/g,' ');
 const matchSupply=p=>d.items.find(i=>!isShapeStockItem(i)&&((p.id&&i.id===p.id)||normal(i.name)===normal(p.name))&&normal(i.unit||'pack')===normal(p.unit||'pack'));
 const unitOptions=['box','tub','bag','pack','bottle','each','oz','lb','g','kg','cup','tbsp','tsp','ml','l','stick','sheet','other'];
 const numInput=v=>Number.isFinite(Number(v))?Number(v):1;
+// Accept decimals, common fractions, Unicode fractions, and mixed numbers.
+function recipeAmount(value){
+ if(typeof value==='number')return value;
+ let t=String(value??'').trim().replace(/[⁄]/g,'/').replace(/[−–]/g,'-');
+ const chars={'½':1/2,'¼':1/4,'¾':3/4,'⅓':1/3,'⅔':2/3,'⅛':1/8,'⅜':3/8,'⅝':5/8,'⅞':7/8};
+ t=t.replace(/(\d)([½¼¾⅓⅔⅛⅜⅝⅞])/g,'$1 $2');
+ if(chars[t]!==undefined)return chars[t];
+ const pieces=t.split(/\s+/).filter(Boolean);if(!pieces.length||pieces.length>2)return NaN;
+ let sum=0;
+ for(const p of pieces){if(chars[p]!==undefined){sum+=chars[p];continue}
+   if(/^\d+\s*\/\s*\d+$/.test(p)){const [a,b]=p.split('/').map(Number);if(!b)return NaN;sum+=a/b;continue}
+   if(/^\d+(?:\.\d+)?$/.test(p)){sum+=Number(p);continue}
+   return NaN;
+ }
+ return sum;
+}
+const suggestedRecipeUnits=name=>{
+ const n=normal(name);let supply=d.items.find(i=>normal(i.name)===n);
+ const choices=[];
+ const add=(...u)=>u.forEach(v=>{if(v&&!choices.includes(v))choices.push(v)});
+ add(supply?.unit);
+ for(let r of d.recipes||[])for(let p of r.parts||[])if(normal(p.name)===n)add(p.unit);
+ if(/egg/.test(n))add('each','dozen');
+ else if(/cake mix|brownie mix|pudding mix/.test(n))add('box','oz','g','cup');
+ else if(/almond bark|chocolate|candy melt|melting wafer/.test(n))add('oz','lb','g','cup','bag');
+ else if(/sprinkle|sugar|flour|crumb|powder/.test(n))add('cup','tbsp','tsp','oz','g');
+ else if(/butter/.test(n))add('stick','tbsp','cup','oz','g');
+ else if(/extract|emulsion|vanilla|oil|water|milk/.test(n))add('tsp','tbsp','cup','ml','oz');
+ else if(/stick|bag|box|wrapper|label|packag/.test(n))add('each','pack','box','bag');
+ add(...unitOptions);
+ return choices;
+};
+function updateIngredientUnitSuggestions(input){
+ const el=input.closest('.ingredient');if(!el)return;
+ const unit=el.querySelector('.ingredient-unit'),list=el.querySelector('datalist');
+ if(!unit||!list)return;
+ list.innerHTML=suggestedRecipeUnits(input.value).map(u=>'<option value="'+esc(u)+'"></option>').join('');
+ if(!unit.dataset.userChosen && !unit.value.trim()){
+   const supply=d.items.find(i=>normal(i.name)===normal(input.value));
+   if(supply?.unit)unit.value=supply.unit;
+ }
+}
+
 function ingredientRow(p={}){
  let el=document.createElement('div');el.className='pair ingredient';
- el.innerHTML=`<label>Ingredient name</label><input class="ingredient-name" placeholder="e.g. Vanilla cake mix" value="${esc(p.name||d.items.find(i=>i.id===p.id)?.name||'')}"><div class="formgrid"><div><label>Amount per full batch</label><input class="ingredient-qty" type="number" min="0.001" step="any" value="${esc(p.qty??1)}"></div><div><label>Unit</label><input class="ingredient-unit" list="recipeUnits" placeholder="box, oz, cup..." value="${esc(p.unit||d.items.find(i=>i.id===p.id)?.unit||'box')}"></div></div><button type="button" class="alt" style="margin-top:7px" onclick="this.parentElement.remove()">Remove ingredient</button>`;
- $('ingredients').append(el);
+ const name=p.name||d.items.find(i=>i.id===p.id)?.name||'';
+ const unit=p.unit||d.items.find(i=>i.id===p.id)?.unit||'';
+ const listId='recipe-units-'+Math.random().toString(36).slice(2);
+ el.innerHTML=`<label>Ingredient name</label><input class="ingredient-name" placeholder="e.g. Vanilla cake mix" value="${esc(name)}" oninput="updateIngredientUnitSuggestions(this)"><div class="formgrid"><div><label>Amount Used</label><input class="ingredient-qty" type="text" inputmode="decimal" placeholder="e.g. 1/3 or 1 1/2" value="${esc(p.qty??'')}"></div><div><label>Unit</label><input class="ingredient-unit" list="${listId}" placeholder="Start typing or choose a unit" value="${esc(unit)}" oninput="this.dataset.userChosen='1'"><datalist id="${listId}"></datalist></div></div><button type="button" class="alt" style="margin-top:7px" onclick="this.parentElement.remove()">Remove ingredient</button>`;
+ $('ingredients').append(el);updateIngredientUnitSuggestions(el.querySelector('.ingredient-name'));
 }
 partRow=ingredientRow;
 renderFlavors=function(){ $('flavors').innerHTML=`<div class="row"><h2>My Flavors</h2><button onclick="editFlavor()">+ Flavor</button></div><div class="notice">Save any recipe ingredients, whether or not they're in your Supplies. PopStock checks stock when you plan an order or event.</div>${d.recipes.map(r=>`<div class="card"><div class="row"><div><strong>${esc(r.name)}</strong><div class="muted small">Ingredients for one full recipe batch</div></div><button class="alt" onclick="editFlavor('${r.id}')">Edit</button></div><div class="small" style="margin-top:10px">${recipeParts(r).map(p=>`${esc(p.name)}: ${fmt(p.qty)} ${esc(p.unit)}`).join(' · ')||'No ingredients yet'}</div></div>`).join('')||'<div class="card muted">Add your first flavor to begin.</div>'}`};
 editFlavor=function(x=''){
  let r=d.recipes.find(r=>r.id===x)||{name:'',parts:[]};
- modal(x?'Edit flavor':'New flavor',`<form onsubmit="saveFlavor(event,'${x}')"><label>Flavor name</label><input name="name" value="${esc(r.name)}" required><h3>Recipe Ingredients</h3><div class="notice">Enter ingredients and amounts for one full batch. No supplies need to be in stock. You can use partial amounts, such as 0.5 tub or 6 oz.</div><div class="pair"><strong>Import ingredients from a recipe photo</strong><p class="muted small">Upload a screenshot, choose a photo, or use your phone camera. Review the recognized text and ingredients before saving. Photo reading needs internet.</p><input id="recipePhoto" type="file" accept="image/*" onchange="recipePhotoChosen(this)"><button type="button" class="alt" style="margin-top:8px" onclick="document.getElementById('recipePhoto').setAttribute('capture','environment');document.getElementById('recipePhoto').click()">Take picture</button><p id="photoStatus" class="small muted" role="status"></p><div id="photoPreview"></div><label>Text from photo (editable)</label><textarea id="photoText" rows="4" placeholder="Recognized ingredients appear here. You can also paste recipe text."></textarea><button type="button" class="alt" style="margin-top:8px" onclick="parsePhotoText()">Add ingredients from text</button></div><div id="ingredients"></div><datalist id="recipeUnits">${unitOptions.map(u=>`<option value="${u}">`).join('')}</datalist><button type="button" class="alt" onclick="ingredientRow()">+ Add ingredient manually</button><div class="actions"><button>Save flavor</button>${x?`<button type="button" class="danger" onclick="removeFlavor('${x}')">Delete</button>`:''}</div></form>`);
+ modal(x?'Edit flavor':'New flavor',`<form onsubmit="saveFlavor(event,'${x}')"><label>Flavor name</label><input name="name" value="${esc(r.name)}" required><h3>Recipe Ingredients</h3><div class="notice">Enter ingredients and amounts for one full batch. No supplies need to be in stock. You can use partial amounts, such as 0.5 tub or 6 oz.</div><div class="pair"><strong>Import ingredients from a recipe photo</strong><p class="muted small">Upload a screenshot, choose a photo, or use your phone camera. Review the recognized text and ingredients before saving. Photo reading needs internet.</p><input id="recipePhoto" type="file" accept="image/*" onchange="recipePhotoChosen(this)"><button type="button" class="alt" style="margin-top:8px" onclick="document.getElementById('recipePhoto').setAttribute('capture','environment');document.getElementById('recipePhoto').click()">Take picture</button><p id="photoStatus" class="small muted" role="status"></p><div id="photoPreview"></div><label>Text from photo (editable)</label><textarea id="photoText" rows="4" placeholder="Recognized ingredients appear here. You can also paste recipe text."></textarea><button type="button" class="alt" style="margin-top:8px" onclick="parsePhotoText()">Add ingredients from text</button></div><div id="ingredients"></div><button type="button" class="alt" onclick="ingredientRow()">+ Add ingredient manually</button><div class="actions"><button>Save flavor</button>${x?`<button type="button" class="danger" onclick="removeFlavor('${x}')">Delete</button>`:''}</div></form>`);
  recipeParts(r).forEach(ingredientRow);
 };
-saveFlavor=function(e,x){e.preventDefault();let f=e.target,parts=[...document.querySelectorAll('.ingredient')].map(el=>({name:el.querySelector('.ingredient-name').value.trim(),qty:Number(el.querySelector('.ingredient-qty').value),unit:el.querySelector('.ingredient-unit').value.trim()||'each'}));if(parts.some(p=>!p.name||!Number.isFinite(p.qty)||p.qty<=0)){alert('Every ingredient needs a name and a positive amount.');return}parts=parts.map(p=>({...p,id:matchSupply(p)?.id||''}));let r={id:x||id(),name:f.elements.name.value.trim(),parts};let old=d.recipes.find(v=>v.id===x);if(old)Object.assign(old,r);else d.recipes.push(r);done()};
+saveFlavor=function(e,x){e.preventDefault();let f=e.target,parts=[...document.querySelectorAll('.ingredient')].map(el=>({name:el.querySelector('.ingredient-name').value.trim(),qty:recipeAmount(el.querySelector('.ingredient-qty').value),unit:el.querySelector('.ingredient-unit').value.trim()||'each'}));if(parts.some(p=>!p.name||!Number.isFinite(p.qty)||p.qty<=0)){alert('Every ingredient needs a name and a positive amount. You can enter 1/3, 1 1/2, or 0.5.');return}parts=parts.map(p=>({...p,id:matchSupply(p)?.id||''}));let r={id:x||id(),name:f.elements.name.value.trim(),parts};let old=d.recipes.find(v=>v.id===x);if(old)Object.assign(old,r);else d.recipes.push(r);done()};
 let selectedPhoto='';
 async function recipePhotoChosen(el){let file=el.files?.[0];if(!file)return;let status=$('photoStatus');status.textContent='Reading photo… this can take a minute and requires internet.';let url=URL.createObjectURL(file);$('photoPreview').innerHTML=`<img src="${url}" alt="Selected recipe" style="max-width:100%;max-height:190px;object-fit:contain">`;
  try{
   if(!window.Tesseract){await new Promise((resolve,reject)=>{let s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';s.onload=resolve;s.onerror=()=>reject(Error('Text recognition library could not load. Check internet access.'));document.head.appendChild(s)})}
-  const worker=await Tesseract.createWorker('eng');try{let out=await worker.recognize(file);$('photoText').value=out.data.text||'';status.textContent='Photo read. Check the text, then tap “Add ingredients from text”.';}finally{await worker.terminate()}
+  const worker=await Tesseract.createWorker('eng');try{let out=await worker.recognize(file);$('photoText').value=out.data.text||'';status.textContent='Photo text extracted. Correct any mistakes, then tap “Add ingredients from text”. Verify the imported ingredients before saving.';}finally{await worker.terminate()}
  }catch(err){status.textContent='Could not read the photo automatically: '+err.message+' You can still type or paste the ingredients below.'}
 }
-function parsePhotoText(){let lines=$('photoText').value.split(/\n/).map(s=>s.trim()).filter(Boolean),added=0;for(let line of lines){line=line.replace(/^[•*\-]\s*/, '').trim();let m=line.match(/^(\d+(?:\.\d+)?|\d+\s*\/\s*\d+|[½¼¾⅓⅔])\s*(boxes?|tubs?|bags?|packs?|bottles?|cups?|tbsp|tsp|oz|lbs?|grams?|g|ml|sticks?|sheets?)?\s*(?:of\s+)?(.+)$/i);if(!m)continue;let raw=m[1],fraction={'½':.5,'¼':.25,'¾':.75,'⅓':1/3,'⅔':2/3}[raw];let qty=fraction??(raw.includes('/')?raw.split('/').map(Number).reduce((a,b)=>a/b):Number(raw));let name=m[3].trim(),unit=(m[2]||'each').toLowerCase().replace(/s$/,'');if(name&&qty>0){ingredientRow({name,qty,unit});added++}}$('photoStatus').textContent=added?`Added ${added} ingredient(s). Review names, quantities, and units before saving.`:'No ingredient lines recognized automatically. Enter ingredients manually or edit the text and retry.'}
+function parsePhotoText(){
+ const source=$('photoText').value;
+ const lines=source.split(/\n/).map(s=>s.trim()).filter(Boolean);
+ const units='boxes?|tubs?|bags?|packs?|bottles?|cups?|tablespoons?|teaspoons?|tbsp\\.?|tsp\\.?|ounces?|oz\\.?|lbs?|pounds?|grams?|g|kg|ml|milliliters?|liters?|sticks?|sheets?|each|eggs?|cans?|packages?';
+ const qty='(?:\\d+\\s+)?(?:\\d+\\s*\\/\\s*\\d+|\\d+(?:\\.\\d+)?|[½¼¾⅓⅔⅛⅜⅝⅞])';
+ const before=new RegExp('^('+qty+')\\s*('+units+')?\\s*(?:of\\s+)?(.+)$','i');
+ const after=new RegExp('^(.+?)\\s*[:—–\\-]\\s*('+qty+')\\s*('+units+')?\\s*$','i');
+ const unitMap={tablespoon:'tbsp',tablespoons:'tbsp',teaspoon:'tsp',teaspoons:'tsp',ounce:'oz',ounces:'oz',pound:'lb',pounds:'lb',grams:'g',gram:'g',milliliter:'ml',milliliters:'ml',cup:'cup',cups:'cup',boxes:'box',tubs:'tub',bags:'bag',packs:'pack',bottles:'bottle',sticks:'stick',sheets:'sheet',eggs:'each',egg:'each',packages:'pack',package:'pack',cans:'can'};
+ let added=0,unparsed=[];
+ for(let line of lines){
+   line=line.replace(/^[•*\-]\s*/,'').replace(/\s+/g,' ').trim();
+   let m=line.match(before),name='',raw='',unit='';
+   if(m){raw=m[1];unit=m[2]||'';name=m[3]}
+   else{m=line.match(after);if(m){name=m[1];raw=m[2];unit=m[3]||''}}
+   if(!m){unparsed.push(line);continue}
+   name=name.replace(/^of\s+/i,'').trim();
+   const amount=recipeAmount(raw);
+   unit=unit.toLowerCase().replace(/\.$/,'');
+   unit=unitMap[unit]||unit||'';
+   if(name&&Number.isFinite(amount)&&amount>0){ingredientRow({name,qty:raw,unit});added++}
+   else unparsed.push(line);
+ }
+ $('photoStatus').textContent=added
+ ?'Added '+added+' ingredient(s) for review. '+(unparsed.length?unparsed.length+' line(s) were not understood; check the text box and enter those manually. ':'')+'Verify every amount and unit before saving.'
+ :'No ingredient lines recognized automatically. Edit the text or enter ingredients manually. Nothing was saved.';
+}
+
 // Ingredient requirements are keyed by name + unit, not by current inventory availability.
 function requirements(lines){let out={};for(let l of lines||[]){let r=d.recipes.find(r=>r.id===l.flavor);if(!r||!l.count)continue;let y=effectiveYield(r,l);if(y<=0)continue;let batches=Math.ceil(Number(l.count)/y);for(let p of recipeParts(r)){let key=normal(p.name)+'|'+normal(p.unit);if(!out[key])out[key]={name:p.name,unit:p.unit,required:0};out[key].required+=p.qty*batches}}return Object.values(out)}
 function checkRows(lines){return requirements(lines).map(p=>{let i=matchSupply(p),have=Number(i?.qty)||0;return {...p,supply:i,have,buy:Math.max(0,p.required-have),missing:!i}})}
