@@ -160,12 +160,43 @@ function updateIngredientUnitSuggestions(input){
  }
 }
 
+function recipeSupplyMatches(input){
+ const el=input.closest('.ingredient'),menu=el?.querySelector('.inventory-suggestions');
+ if(!menu)return;
+ const term=normal(input.value);
+ menu.replaceChildren();
+ if(!term){menu.hidden=true;return}
+ const matches=d.items.filter(i=>!isShapeStockItem(i)&&normal(i.name).includes(term))
+   .sort((a,b)=>Number(normal(b.name).startsWith(term))-Number(normal(a.name).startsWith(term))||a.name.localeCompare(b.name)).slice(0,8);
+ if(!matches.length){menu.hidden=true;return}
+ menu.hidden=false;
+ const title=document.createElement('div');
+ title.textContent='Matching supplies in your inventory — tap to select';
+ title.style.cssText='font-size:12px;opacity:.8;margin:4px 0 6px';
+ menu.append(title);
+ for(const supply of matches){
+  const button=document.createElement('button');
+  button.type='button';button.className='alt';
+  button.style.cssText='display:block;width:100%;text-align:left;margin:4px 0;padding:10px 12px;white-space:normal';
+  button.textContent=supply.name+' — '+(supply.unit||'pack')+' (In stock: '+fmt(supply.qty||0)+')';
+  button.addEventListener('click',()=>{
+    input.value=supply.name;
+    const unit=el.querySelector('.ingredient-unit');
+    unit.value=supply.unit||'pack';
+    unit.dataset.userChosen='1';
+    menu.hidden=true;menu.replaceChildren();
+    updateIngredientUnitSuggestions(input);
+    el.querySelector('.ingredient-qty')?.focus();
+  });
+  menu.append(button);
+ }
+}
 function ingredientRow(p={}){
  let el=document.createElement('div');el.className='pair ingredient';
  const name=p.name||d.items.find(i=>i.id===p.id)?.name||'';
  const unit=p.unit||d.items.find(i=>i.id===p.id)?.unit||'';
  const listId='recipe-units-'+Math.random().toString(36).slice(2);
- el.innerHTML=`<label>Ingredient name</label><input class="ingredient-name" placeholder="e.g. Vanilla cake mix" value="${esc(name)}" oninput="updateIngredientUnitSuggestions(this)"><div class="formgrid"><div><label>Amount Used</label><input class="ingredient-qty" type="text" inputmode="text" autocomplete="off" placeholder="1/4, 1/2, 1 1/2, or 0.25" value="${esc(p.amountText||(p.qty??''))}"></div><div><label>Unit</label><input class="ingredient-unit" list="${listId}" placeholder="Start typing or choose a unit" value="${esc(unit)}" oninput="this.dataset.userChosen='1'"><datalist id="${listId}"></datalist></div></div><div class="unit-suggestions" style="margin-top:9px;margin-bottom:8px"></div><button type="button" class="alt" style="margin-top:7px" onclick="this.parentElement.remove()">Remove ingredient</button>`;
+ el.innerHTML=`<label>Ingredient name</label><input class="ingredient-name" placeholder="Start typing a supply name..." autocomplete="off" value="${esc(name)}" oninput="updateIngredientUnitSuggestions(this);recipeSupplyMatches(this)" onfocus="recipeSupplyMatches(this)"><div class="inventory-suggestions" hidden style="margin:7px 0 12px"></div><div class="formgrid"><div><label>Amount Used</label><input class="ingredient-qty" type="text" inputmode="text" autocomplete="off" placeholder="1/4, 1/2, 1 1/2, or 0.25" value="${esc(p.amountText||(p.qty??''))}"></div><div><label>Unit</label><input class="ingredient-unit" list="${listId}" placeholder="Start typing or choose a unit" value="${esc(unit)}" oninput="this.dataset.userChosen='1'"><datalist id="${listId}"></datalist></div></div><div class="unit-suggestions" style="margin-top:9px;margin-bottom:8px"></div><button type="button" class="alt" style="margin-top:7px" onclick="this.parentElement.remove()">Remove ingredient</button>`;
  $('ingredients').append(el);updateIngredientUnitSuggestions(el.querySelector('.ingredient-name'));
 }
 partRow=ingredientRow;
