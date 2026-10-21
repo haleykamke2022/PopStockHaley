@@ -178,9 +178,10 @@ function recipeSupplyMatches(input){
   const button=document.createElement('button');
   button.type='button';button.className='alt';
   button.style.cssText='display:block;width:100%;text-align:left;margin:4px 0;padding:10px 12px;white-space:normal';
-  button.textContent=supply.name+' — '+(supply.unit||'pack')+' (In stock: '+fmt(supply.qty||0)+')';
+  const category=d.categories.find(c=>c.id===supply.type||c.name===supply.type);button.textContent=supply.name+' — '+(category?.name||'Supplies')+' · '+fmt(supply.qty||0)+' '+(supply.unit||'pack')+' in stock';
   button.addEventListener('click',()=>{
     input.value=supply.name;
+    el.dataset.supplyId=supply.id;
     const unit=el.querySelector('.ingredient-unit');
     unit.value=supply.unit||'pack';
     unit.dataset.userChosen='1';
@@ -196,7 +197,8 @@ function ingredientRow(p={}){
  const name=p.name||d.items.find(i=>i.id===p.id)?.name||'';
  const unit=p.unit||d.items.find(i=>i.id===p.id)?.unit||'';
  const listId='recipe-units-'+Math.random().toString(36).slice(2);
- el.innerHTML=`<label>Ingredient name</label><input class="ingredient-name" placeholder="Start typing a supply name..." autocomplete="off" value="${esc(name)}" oninput="updateIngredientUnitSuggestions(this);recipeSupplyMatches(this)" onfocus="recipeSupplyMatches(this)"><div class="inventory-suggestions" hidden style="margin:7px 0 12px"></div><div class="formgrid"><div><label>Amount Used</label><input class="ingredient-qty" type="text" inputmode="text" autocomplete="off" placeholder="1/4, 1/2, 1 1/2, or 0.25" value="${esc(p.amountText||(p.qty??''))}"></div><div><label>Unit</label><input class="ingredient-unit" list="${listId}" placeholder="Start typing or choose a unit" value="${esc(unit)}" oninput="this.dataset.userChosen='1'"><datalist id="${listId}"></datalist></div></div><div class="unit-suggestions" style="margin-top:9px;margin-bottom:8px"></div><button type="button" class="alt" style="margin-top:7px" onclick="this.parentElement.remove()">Remove ingredient</button>`;
+ if(p.id&&d.items.some(i=>i.id===p.id))el.dataset.supplyId=p.id;
+ el.innerHTML=`<label>Ingredient name</label><input class="ingredient-name" placeholder="Start typing a supply name..." autocomplete="off" value="${esc(name)}" oninput="delete this.closest('.ingredient').dataset.supplyId;updateIngredientUnitSuggestions(this);recipeSupplyMatches(this)" onfocus="recipeSupplyMatches(this)"><div class="inventory-suggestions" hidden style="margin:7px 0 12px"></div><div class="formgrid"><div><label>Amount Used</label><input class="ingredient-qty" type="text" inputmode="text" autocomplete="off" placeholder="1/4, 1/2, 1 1/2, or 0.25" value="${esc(p.amountText||(p.qty??''))}"></div><div><label>Unit</label><input class="ingredient-unit" list="${listId}" placeholder="Start typing or choose a unit" value="${esc(unit)}" oninput="this.dataset.userChosen='1'"><datalist id="${listId}"></datalist></div></div><div class="unit-suggestions" style="margin-top:9px;margin-bottom:8px"></div><button type="button" class="alt" style="margin-top:7px" onclick="this.parentElement.remove()">Remove ingredient</button>`;
  $('ingredients').append(el);updateIngredientUnitSuggestions(el.querySelector('.ingredient-name'));
 }
 partRow=ingredientRow;
@@ -206,7 +208,7 @@ editFlavor=function(x=''){
  modal(x?'Edit flavor':'New flavor',`<form onsubmit="saveFlavor(event,'${x}')"><label>Flavor name</label><input name="name" value="${esc(r.name)}" required><h3>Recipe Ingredients</h3><div class="notice">Enter ingredients and amounts for one full batch. No supplies need to be in stock. Enter the ingredient name, Amount Used (like 1/3, 1 1/2, or 0.5), and unit. Check imported text before saving.</div><div class="pair"><strong>Import ingredients from a recipe photo</strong><p class="muted small">Upload a screenshot, choose a photo, or use your phone camera. Review the recognized text and ingredients before saving. Photo reading needs internet.</p><input id="recipePhoto" type="file" accept="image/*" onchange="recipePhotoChosen(this)"><button type="button" class="alt" style="margin-top:8px" onclick="document.getElementById('recipePhoto').setAttribute('capture','environment');document.getElementById('recipePhoto').click()">Take picture</button><p id="photoStatus" class="small muted" role="status"></p><div id="photoPreview"></div><label>Text from photo (editable)</label><textarea id="photoText" rows="4" placeholder="Recognized ingredients appear here. You can also paste recipe text."></textarea><button type="button" class="alt" style="margin-top:8px" onclick="parsePhotoText()">Add ingredients from text</button></div><div id="ingredients"></div><button type="button" class="alt" onclick="ingredientRow()">+ Add ingredient manually</button><div class="actions"><button>Save flavor</button>${x?`<button type="button" class="danger" onclick="removeFlavor('${x}')">Delete</button>`:''}</div></form>`);
  recipeParts(r).forEach(ingredientRow);
 };
-saveFlavor=function(e,x){e.preventDefault();let f=e.target,parts=[...document.querySelectorAll('.ingredient')].map(el=>({name:el.querySelector('.ingredient-name').value.trim(),qty:recipeAmount(el.querySelector('.ingredient-qty').value),amountText:el.querySelector('.ingredient-qty').value.trim(),unit:el.querySelector('.ingredient-unit').value.trim()||'each'}));if(parts.some(p=>!p.name||!Number.isFinite(p.qty)||p.qty<=0)){alert('Every ingredient needs a name and a positive amount. You can enter 1/3, 1 1/2, or 0.5.');return}parts=parts.map(p=>({...p,id:matchSupply(p)?.id||''}));let r={id:x||id(),name:f.elements.name.value.trim(),parts};let old=d.recipes.find(v=>v.id===x);if(old)Object.assign(old,r);else d.recipes.push(r);done()};
+saveFlavor=function(e,x){e.preventDefault();let f=e.target,parts=[...document.querySelectorAll('.ingredient')].map(el=>({name:el.querySelector('.ingredient-name').value.trim(),qty:recipeAmount(el.querySelector('.ingredient-qty').value),amountText:el.querySelector('.ingredient-qty').value.trim(),unit:el.querySelector('.ingredient-unit').value.trim()||'each',selectedId:el.dataset.supplyId||''}));if(parts.some(p=>!p.name||!Number.isFinite(p.qty)||p.qty<=0)){alert('Every ingredient needs a name and a positive amount. You can enter 1/3, 1 1/2, or 0.5.');return}parts=parts.map(p=>{const selected=d.items.find(i=>i.id===p.selectedId&&normal(i.name)===normal(p.name)&&convertedAmount(1,p.unit,i.unit||'pack')!==null);const id=selected?.id||matchSupply(p)?.id||'';const {selectedId,...rest}=p;return {...rest,id}});let r={id:x||id(),name:f.elements.name.value.trim(),parts};let old=d.recipes.find(v=>v.id===x);if(old)Object.assign(old,r);else d.recipes.push(r);done()};
 let selectedPhoto='';
 async function recipePhotoChosen(el){let file=el.files?.[0];if(!file)return;let status=$('photoStatus');status.textContent='Reading photo… this can take a minute and requires internet.';let url=URL.createObjectURL(file);$('photoPreview').innerHTML=`<img src="${url}" alt="Selected recipe" style="max-width:100%;max-height:190px;object-fit:contain">`;
  try{
@@ -242,7 +244,7 @@ function parsePhotoText(){
 }
 
 // Ingredient requirements are keyed by name + unit, not by current inventory availability.
-function requirements(lines){let out={};for(let l of lines||[]){let r=d.recipes.find(r=>r.id===l.flavor);if(!r||!l.count)continue;let y=effectiveYield(r,l);if(y<=0)continue;let batches=Math.ceil(Number(l.count)/y);for(let p of recipeParts(r)){let key=normal(p.name)+'|'+normal(p.unit);if(!out[key])out[key]={name:p.name,unit:p.unit,required:0};out[key].required+=p.qty*batches}}return Object.values(out)}
+function requirements(lines){let out={};for(let l of lines||[]){let r=d.recipes.find(r=>r.id===l.flavor);if(!r||!l.count)continue;let y=effectiveYield(r,l);if(y<=0)continue;let batches=Math.ceil(Number(l.count)/y);for(let p of recipeParts(r)){let key=(p.id?'id:'+p.id:'name:'+normal(p.name))+'|'+normal(p.unit);if(!out[key])out[key]={name:p.name,unit:p.unit,id:p.id||'',required:0};out[key].required+=p.qty*batches}}return Object.values(out)}
 function checkRows(lines){return requirements(lines).map(p=>{let i=matchSupply(p),have=Number(i?.qty)||0;return {...p,supply:i,have,buy:Math.max(0,p.required-have),missing:!i}})}
 function stockReport(lines){let rows=checkRows(lines);return rows.length?rows.map(p=>`${p.name}: need ${fmt(p.required)} ${p.unit}, ${p.missing?'not in Supplies':`have ${fmt(p.have)}`}${p.buy>0?`, buy ${fmt(p.buy)}`:', enough in stock'}`).join('\n'):'No recipe ingredients found. Check your selected shapes and recipes.'}
 const oldRenderPlansRecipes=renderPlans;
@@ -459,7 +461,7 @@ function convertedAmount(quantity,from,to){
 }
 for(const u of ['fl oz','gal','gallon','pint','quart','dozen'])if(!unitOptions.includes(u))unitOptions.push(u);
 matchSupply=function(p){
- const matches=d.items.filter(i=>!isShapeStockItem(i)&&((p.id&&i.id===p.id)||normal(i.name)===normal(p.name)));
+ const matches=d.items.filter(i=>!isShapeStockItem(i)&&((p.id&&i.id===p.id)||(!p.id&&normal(i.name)===normal(p.name))));
  return matches.find(i=>convertedAmount(1,p.unit,i.unit||'pack')!==null);
 };
 // Group requirements in the inventory unit before checking stock or deducting it.
