@@ -2203,4 +2203,50 @@ function renderFeedback(){
  root.querySelector('#psFeedbackDownload')?.addEventListener('click',psFeedbackExport);
 }
 
+
+/* Phase 4 Step 4: Read-only backup file inspection. No restore or data mutation. */
+async function psInspectBackupFile(file){
+ if(!file)return;
+ const output=$('psBackupCheckResult');if(!output)return;
+ output.textContent='Checking backup file...';
+ try{
+  if(file.size>15000000)throw Error('Backup exceeds the 15 MB safety limit.');
+  const x=JSON.parse(await file.text());
+  if(!x||typeof x!=='object'||Array.isArray(x))throw Error('Expected a PopStock backup object.');
+  for(const key of ['items','recipes','orders']){
+   if(!Array.isArray(x[key]))throw Error('Missing or invalid '+key+' records.');
+  }
+  for(const key of ['events','categories','customerQuotes','shapes','freezer','priceHistory']){
+   if(x[key]!==undefined&&!Array.isArray(x[key]))throw Error('Invalid '+key+' records.');
+  }
+  if(x.shoppingChecklists!==undefined&&(typeof x.shoppingChecklists!=='object'||Array.isArray(x.shoppingChecklists)||x.shoppingChecklists===null))throw Error('Invalid shopping checklists.');
+  const keys=['items','recipes','orders','events','customerQuotes','shapes','freezer','priceHistory'];
+  const messages=[];
+  for(const key of keys){
+   const rows=Array.isArray(x[key])?x[key]:[];
+   const seen=new Set();
+   for(const entry of rows){
+    if(!entry||typeof entry!=='object'||Array.isArray(entry))throw Error('Invalid '+key+' entry.');
+    if(entry.id){if(seen.has(entry.id))messages.push('Duplicate '+key+' ID');seen.add(entry.id)}
+   }
+  }
+  if(messages.length)throw Error([...new Set(messages)].join('; '));
+  const counts=keys.map(key=>key+': '+(x[key]?.length||0)).join(' · ');
+  output.textContent='File structure looks valid. '+counts+'. This is a read-only check; no data was restored or changed. This does not guarantee every record can be restored.';
+ }catch(e){output.textContent='Backup check failed: '+e.message+'. Current PopStock data has not been changed.'}
+}
+const psBeforeBackupCheckSettings=renderSettings;
+renderSettings=function(){
+ psBeforeBackupCheckSettings();
+ const root=$('settings');if(!root)return;
+ const card=document.createElement('div');card.className='card';
+ card.innerHTML='<h3>Backup File Check</h3>'+
+ '<p class="muted small">Select an exported PopStock JSON backup to check its basic structure and record counts. This never imports or replaces any records.</p>'+
+ '<label for="psBackupCheckFile">Choose a backup file</label>'+
+ '<input id="psBackupCheckFile" type="file" accept=".json,application/json">'+
+ '<p id="psBackupCheckResult" class="muted small" role="status">No file selected.</p>';
+ root.append(card);
+ card.querySelector('#psBackupCheckFile').addEventListener('change',e=>{psInspectBackupFile(e.target.files?.[0]);});
+};
+
 save();render();psWelcomeFirstLaunch();if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
