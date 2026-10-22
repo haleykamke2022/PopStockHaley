@@ -2524,4 +2524,46 @@ go=function(target){
  psUpdateBackTop();
 })();
 
+
+/* Phase 5 Step 5: public beta launch preparation; no publishing or business-data changes. */
+const psLaunchChecks=[
+ ['welcome','First-time welcome and setup guide tested'],
+ ['tasks','Beta Tester Guide and checklist tested'],
+ ['feedback','Original Google feedback form opens and accepts a test response'],
+ ['navigation','Home, top navigation, and Settings tested on mobile'],
+ ['workflows','Stock, flavors, quotes, orders, events and production tested'],
+ ['safety','Backup exported and backup file check passed'],
+ ['distribution','Beta URL tested in a separate fresh browser session']
+];
+function psLaunchState(){try{const v=JSON.parse(localStorage.getItem('popstock_launch_checks_v1')||'{}');return v&&typeof v==='object'&&!Array.isArray(v)?v:{}}catch{return {}}}
+function psLaunchChange(key,checked){
+ if(!psLaunchChecks.some(([id])=>id===key))return;
+ const v=psLaunchState();v[key]=checked;
+ try{localStorage.setItem('popstock_launch_checks_v1',JSON.stringify(v))}catch{}
+ psRenderLaunchChecks();
+}
+function psRenderLaunchChecks(){
+ const root=$('psLaunchChecks');if(!root)return;
+ const state=psLaunchState(),count=psLaunchChecks.filter(([id])=>state[id]).length;
+ root.innerHTML='<p class="muted small">Use this checklist before sharing PopStock with more testers. Progress stays on this device and does not publish the app automatically.</p>'+
+ '<p><strong>'+count+' of '+psLaunchChecks.length+' checks complete</strong></p>'+
+ psLaunchChecks.map(([id,label])=>'<label style="display:flex;align-items:center;gap:10px;padding:8px 0"><input type="checkbox" style="width:auto;min-height:auto" data-launch-check="'+id+'" '+(state[id]?'checked':'')+'><span>'+esc(label)+'</span></label>').join('')+
+ '<p class="muted small">PopStock uses local device storage, not cloud sync. Testers should use the Beta link and save backups. Never promise cross-device synchronization.</p>'+
+ '<div class="actions"><button type="button" class="alt" id="psCopyBetaLink">Copy Beta Link</button></div>';
+ root.querySelectorAll('[data-launch-check]').forEach(el=>el.addEventListener('change',()=>psLaunchChange(el.dataset.launchCheck,el.checked)));
+ root.querySelector('#psCopyBetaLink')?.addEventListener('click',()=>{
+  const link='https://haleykamke2022.github.io/PopStock-Beta/';
+  if(navigator.clipboard?.writeText)navigator.clipboard.writeText(link).then(()=>alert('Beta link copied.')).catch(()=>prompt('Copy beta link:',link));
+  else prompt('Copy beta link:',link);
+ });
+}
+const psLaunchBeforeSettings=renderSettings;
+renderSettings=function(){
+ psLaunchBeforeSettings();
+ const root=$('settings')?.querySelector('[data-settings-panel="general"]');if(!root)return;
+ const card=document.createElement('div');card.className='card';
+ card.innerHTML='<h3>Public Beta Launch</h3><div id="psLaunchChecks"></div>';
+ root.appendChild(card);psRenderLaunchChecks();
+};
+
 save();render();psWelcomeFirstLaunch();if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
