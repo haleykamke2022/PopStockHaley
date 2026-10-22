@@ -1029,4 +1029,22 @@ renderStock=function(){
  });
 };
 
+
+/* Manually request a restock without automatic thresholds. */
+const manualLowBefore=homeLowStock;
+homeLowStock=function(){const m=new Map();for(const i of [...manualLowBefore(),...d.items.filter(i=>!isShapeStockItem(i)&&i.manualRestock)])m.set(i.id,i);return alpha([...m.values()])};
+function toggleRestock(x){const i=d.items.find(v=>v.id===x);if(!i)return;i.manualRestock=!i.manualRestock;save();render()}
+const manualEditBefore=editItem;
+editItem=function(x='',cat=''){manualEditBefore(x,cat);const f=$('dialogBody')?.querySelector('form');if(!f)return;const i=d.items.find(v=>v.id===x),actions=f.querySelector('.actions');actions?.insertAdjacentHTML('beforebegin','<label><input type="checkbox" name="manualRestock" style="width:auto" '+(i?.manualRestock?'checked':'')+'> Restock this supply now</label><p class="muted small">Manual restock request. No minimum or target required. Uncheck when you have purchased enough.</p>')};
+const manualSaveBefore=saveItem;
+saveItem=function(e,x){const needed=!!e.target.elements.manualRestock?.checked;manualSaveBefore(e,x);const i=d.items.find(v=>v.id===x)||d.items[d.items.length-1];if(i){i.manualRestock=needed;save();render()}};
+const manualStockBefore=renderStock;
+renderStock=function(){manualStockBefore();if(!selected||shapeCategories().some(c=>c.id===selected))return;const list=alpha(d.items.filter(i=>catOf(i)?.id===selected)),rows=$('stock')?.querySelectorAll('.card .item')||[];list.forEach((i,k)=>{const actions=rows[k]?.querySelector('.actions');if(!actions)return;const btn=document.createElement('button');btn.type='button';btn.className=i.manualRestock?'danger':'alt';btn.textContent=i.manualRestock?'Clear restock':'Mark restock';btn.addEventListener('click',()=>toggleRestock(i.id));actions.append(btn);if(i.manualRestock){const detail=rows[k].querySelector('.small.muted');if(detail)detail.textContent='Marked for restock · '+fmt(Number(i.qty)||0)+' '+(i.unit||'each')+' on hand'}})};
+const manualShopBefore=renderShopping;
+renderShopping=function(){manualShopBefore();const p=d[shoppingPlanKind]?.find(v=>v.id===shoppingPlanId);if(p)return;const card=$('shopping')?.querySelectorAll('.card')?.[1];if(!card)return;const rows=homeLowStock();card.innerHTML=rows.length?rows.map(i=>{const target=Number(i.restock??i.min??0),buy=Math.max(0,target-Number(i.qty||0));return '<div class="item"><div class="row"><strong>'+esc(i.name)+'</strong><span class="pill">'+(i.manualRestock?'Restock requested':buy>0?'Buy '+fmt(buy):'Review')+'</span></div><div class="small muted">Have '+fmt(Number(i.qty)||0)+' '+esc(i.unit||'each')+(restockTracked(i)?' · Automatic target '+fmt(target):' · No automatic target')+'</div>'+(i.manualRestock?'<div class="actions"><button type="button" class="alt" onclick="toggleRestock(\''+i.id+'\')">Clear restock</button></div>':'')+'</div>'}).join(''):'<p class="muted">Nothing needs restocking.</p>'};
+const manualCopyBefore=copyShop;
+copyShop=function(){const p=d[shoppingPlanKind]?.find(v=>v.id===shoppingPlanId);if(p)return manualCopyBefore();const rows=homeLowStock().map(i=>i.name+' — have '+fmt(Number(i.qty)||0)+' '+(i.unit||'each')+(i.manualRestock?' · Restock requested':' · Buy '+fmt(Math.max(0,Number(i.restock??i.min??0)-Number(i.qty||0)))));const output='General restock\n'+(rows.length?rows.join('\n'):'Nothing to restock.');if(navigator.clipboard?.writeText)navigator.clipboard.writeText(output).then(()=>alert('Copied')).catch(()=>prompt('Copy list:',output));else prompt('Copy list:',output)};
+const manualHomeBefore=renderHome;
+renderHome=function(){manualHomeBefore();const root=$('home');if(!root)return;for(const v of root.querySelectorAll('.home-label,h3'))if(v.textContent==='Low-stock supplies')v.textContent='Restock needed';const title=[...root.querySelectorAll('h3')].find(v=>v.textContent==='Restock needed'),lines=title?.closest('.card')?.querySelectorAll('.home-line')||[];homeLowStock().slice(0,6).forEach((i,k)=>{if(!i.manualRestock||!lines[k])return;const detail=lines[k].querySelector('.small.muted');if(detail)detail.textContent=catName(i)+' · '+fmt(Number(i.qty)||0)+' '+(i.unit||'each')+' left · Marked for restock'})};
+
 save();render();if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
