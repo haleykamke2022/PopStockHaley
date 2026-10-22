@@ -543,4 +543,91 @@ function popSaveActual(e,x){e.preventDefault();let p=d.orders.find(v=>v.id===x);
 const popPrevRenderPlans=renderPlans;
 renderPlans=function(kind){popPrevRenderPlans(kind);if(kind!=='orders')return;for(let p of d.orders){let card=[...$('orders').querySelectorAll('.card')].find(c=>c.querySelector('button[onclick="editPlan(\'orders\',\''+p.id+'\')"]'));if(!card)continue;if(p.status==='In progress'){let b=[...card.querySelectorAll('button')].find(b=>b.getAttribute('onclick')==="complete('orders','"+p.id+"')");if(b){b.textContent='Finish order · actual pops';b.setAttribute('onclick',"popFinishOrder('"+p.id+"')")}else card.insertAdjacentHTML('beforeend','<button class="alt" onclick="popFinishOrder(\''+p.id+'\')">Finish order · actual pops</button>')}if(p.status==='Completed'&&p.actualCounts)card.insertAdjacentHTML('beforeend','<div class="notice">Made '+p.actualCounts.reduce((a,b)=>a+b,0)+' pops · '+p.extraPops+' extra · '+p.fewerPops+' fewer. Packaging: '+Object.entries(p.packagingUsed||{}).map(([id,q])=>esc(itemName(id))+': '+q).join(' · ')+'</div>')}};
 
+
+// Past events: comparison-only records with no stock or freezer effects.
+d.historicalEvents ||= [];
+function pastEventAsReport(h){
+ const made=Number(h.brought)||0,sold=Number(h.sold)||0;
+ return {id:h.id,name:h.name,date:h.date,location:h.location,eventCategory:h.eventCategory,
+  vendorFeeEnabled:Number(h.vendorFee)>0,vendorFee:Number(h.vendorFee)||0,
+  expenses:Number(h.otherExpenses)>0?[{name:'Recorded event costs',amount:Number(h.otherExpenses)}]:[],
+  report:{sales:Number(h.sales)||0,rows:[{flavor:'',shape:'',made,sold,frozen:0,other:0}],topFlavor:h.topFlavor||'',notes:h.notes||'',historical:true}};
+}
+function pastEventForm(x=''){
+ const h=d.historicalEvents.find(v=>v.id===x)||{};
+ const form='<form onsubmit="savePastEvent(event,\''+x+'\')">'+
+ '<p class="notice">Enter results from events you attended before using PopStock. These records are for comparison and year-end reports only; they never deduct inventory or create freezer entries.</p>'+
+ '<label>Event name</label><input name="name" required value="'+esc(h.name||'')+'">'+
+ '<label>Event date</label><input name="date" type="date" required value="'+esc(h.date||'')+'">'+
+ '<label>Location (optional)</label><input name="location" value="'+esc(h.location||'')+'">'+
+ '<label>Event category</label><select name="eventCategory">'+eventCategoryNames.map(c=>'<option '+((h.eventCategory||'Market / Vendor Event')===c?'selected':'')+'>'+esc(c)+'</option>').join('')+'</select>'+
+ '<div class="formgrid"><div><label>Pops brought</label><input name="brought" type="number" min="0" step="1" required value="'+(h.brought??'')+'"></div><div><label>Pops sold</label><input name="sold" type="number" min="0" step="1" required value="'+(h.sold??'')+'"></div></div>'+
+ '<label>Top-selling flavor</label><input name="topFlavor" placeholder="e.g. Funfetti" value="'+esc(h.topFlavor||'')+'">'+
+ '<div class="formgrid"><div><label>Total event sales ($)</label><input name="sales" type="number" min="0" step="0.01" required value="'+(h.sales??'')+'"></div><div><label>Vendor fee ($)</label><input name="vendorFee" type="number" min="0" step="0.01" value="'+(h.vendorFee??0)+'"></div><div><label>Other event costs ($)</label><input name="otherExpenses" type="number" min="0" step="0.01" value="'+(h.otherExpenses??0)+'"></div></div>'+
+ '<label>Notes / what sold well (optional)</label><textarea name="notes" rows="3">'+esc(h.notes||'')+'</textarea>'+
+ '<div class="actions"><button>Save past event</button>'+(x?'<button class="danger" type="button" onclick="deletePastEvent(\''+x+'\')">Delete past event</button>':'')+'</div></form>';
+ modal(x?'Edit past event':'Add past event',form);
+}
+function savePastEvent(e,x){
+ e.preventDefault();const f=e.target;
+ const int=n=>Number(f.elements[n].value);
+ const n=int('brought'),sold=int('sold');
+ if(!Number.isInteger(n)||n<0||!Number.isInteger(sold)||sold<0||sold>n){alert('Pops brought and sold must be whole numbers, and sold cannot exceed brought.');return}
+ const moneyFields=['sales','vendorFee','otherExpenses'];if(moneyFields.some(k=>!Number.isFinite(int(k))||int(k)<0)){alert('Sales and costs must be valid non-negative amounts.');return}
+ const record={id:x||id(),name:f.elements.name.value.trim(),date:f.elements.date.value,location:f.elements.location.value.trim(),eventCategory:f.elements.eventCategory.value,
+  brought:n,sold,topFlavor:f.elements.topFlavor.value.trim(),sales:int('sales'),vendorFee:int('vendorFee'),otherExpenses:int('otherExpenses'),notes:f.elements.notes.value.trim()};
+ if(!record.name||!record.date){alert('Enter an event name and date.');return}
+ const old=d.historicalEvents.find(v=>v.id===x);if(old)Object.assign(old,record);else d.historicalEvents.push(record);
+ save();done();
+}
+function deletePastEvent(x){
+ if(!confirm('Delete this past event record? This will not change inventory.'))return;
+ d.historicalEvents=d.historicalEvents.filter(v=>v.id!==x);save();done();
+}
+const pastOriginalYearData=yearData;
+yearData=function(y){
+ const base=pastOriginalYearData(y);
+ const past=d.historicalEvents.filter(v=>v.date?.startsWith(String(y))).map(pastEventAsReport);
+ const events=base.events.concat(past);
+ const sales=events.reduce((sum,v)=>sum+num(v.report.sales),0);
+ const eventCosts=events.reduce((sum,v)=>sum+eventExpenses(v),0);
+ return {...base,events,sales,eventCosts};
+};
+const pastOriginalRenderBusiness=renderBusiness;
+renderBusiness=function(){
+ pastOriginalRenderBusiness();
+ const section=$('business');if(!section)return;
+ const history=document.createElement('div');history.className='card';
+ history.innerHTML='<h3>Past events</h3><p class="muted small">Add past event results manually without changing stock. They count toward year-end totals and event comparisons.</p><button type="button" onclick="pastEventForm()">+ Add past event</button>'+
+ (d.historicalEvents.slice().sort((a,b)=>(b.date||'').localeCompare(a.date||'')).map(h=>
+ '<div class="item row"><div><strong>'+esc(h.name)+'</strong><div class="small muted">'+esc(h.date)+' · '+h.sold+'/'+h.brought+' sold · '+money(h.sales)+'</div></div><button type="button" class="alt" onclick="pastEventForm(\''+h.id+'\')">Edit</button></div>').join('')||'<p class="muted">No past events recorded yet.</p>');
+ const compare=[...section.querySelectorAll('h3')].find(h=>h.textContent.includes('Compare completed events'));
+ const comparisonCard=compare?.closest('.card');
+ if(comparisonCard){
+  section.insertBefore(history,comparisonCard);
+  const tbody=comparisonCard.querySelector('tbody');
+  if(tbody){
+   const items=d.historicalEvents.slice().sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+   if(items.length&&tbody.querySelector('td[colspan]'))tbody.innerHTML='';
+   tbody.insertAdjacentHTML('beforeend',items.map(h=>{
+     const expenses=(Number(h.vendorFee)||0)+(Number(h.otherExpenses)||0);
+     return '<tr><td>'+esc(h.name)+'<div class="small muted">'+esc(h.date)+' · Past event</div></td><td>'+money(h.sales)+'</td><td>'+money(expenses)+'</td><td>'+h.sold+'</td><td>'+(h.brought?(100*h.sold/h.brought).toFixed(0):0)+'%</td><td>'+esc(h.topFlavor||'—')+'</td></tr>';
+   }).join(''));
+  }
+ }
+};
+const pastOriginalRenderPlans=renderPlans;
+renderPlans=function(kind){
+ pastOriginalRenderPlans(kind);
+ if(kind!=='events')return;
+ const container=$('events'),top=container?.querySelector('.row');if(!top)return;
+ const btn=document.createElement('button');btn.type='button';btn.className='alt';btn.textContent='+ Past event (manual results)';btn.onclick=()=>pastEventForm();top.append(btn);
+};
+const pastOriginalExportEvents=exportEvents;
+exportEvents=function(){
+ const all=d.events.filter(p=>p.report).concat(d.historicalEvents.map(pastEventAsReport));
+ exportCsv('popstock-event-comparison.csv',[['Event','Date','Location','Category','Sales','Vendor fee','Other expenses','Revenue less event costs','Pops brought/made','Pops sold','Sell-through %','Top flavor','Historical'],
+ ...all.map(p=>{const rows=p.report.rows||[],made=rows.reduce((n,r)=>n+num(r.made),0),sold=rows.reduce((n,r)=>n+num(r.sold),0),top=[...rows].sort((a,b)=>b.sold-a.sold)[0];return [p.name,p.date,p.location||'',p.eventCategory||'',p.report.sales,p.vendorFeeEnabled?p.vendorFee:0,expenseTotal(p.expenses),p.report.sales-eventExpenses(p),made,sold,made?(sold/made*100).toFixed(1):0,p.report.topFlavor||(top?flavorName(top.flavor):''),p.report.historical?'Yes':'No']})]);
+};
+
 save();render();if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
