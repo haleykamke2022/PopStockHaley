@@ -1006,7 +1006,9 @@ function renderHome(){
  '<button type="button" onclick="go(\'orders\');editPlan(\'orders\')">+ New order</button>'+
  '<button type="button" onclick="go(\'events\');editPlan(\'events\')">+ New event</button>'+
  '<button type="button" onclick="go(\'stock\');editItem()">+ Add supply</button>'+
- '<button type="button" onclick="go(\'business\');newCustomerQuote()">+ New estimate</button>'+
+ '<button type="button" onclick="go(\'quotes\');newCustomerQuote()">+ New estimate</button>'+
+ '<button type="button" onclick="go(\'production\')">Production tracker</button>'+
+ '<button type="button" onclick="go(\'shopping\')">Shopping lists</button>'+
  '</div></div>'+
  '<div class="home-panels"><div class="card"><div class="row"><h3>Upcoming orders</h3><button class="alt" onclick="go(\'orders\')">All orders</button></div>'+homeList('orders',orders)+'</div>'+
  '<div class="card"><div class="row"><h3>Upcoming events</h3><button class="alt" onclick="go(\'events\')">All events</button></div>'+homeList('events',events)+'</div></div>'+
