@@ -1713,6 +1713,8 @@ function psProfitExport(){
 /* Phase 3 Step 2 simplification: reuse inventory cost records and shared labor. */
 d.settings ||= {};
 d.settings.laborRates ||= {order:20,market:20};
+d.settings.laborRates.production ??= d.settings.laborRates.market ?? 20;
+d.settings.laborRates.attendance ??= d.settings.laborRates.market ?? 20;
 function psSharedRate(kind){return Number(d.settings.laborRates[kind]??20)}
 function psRecordedSupplyCost(usage){
  let total=0,missing=[];
@@ -1731,9 +1733,9 @@ function psCalculatedEventCosts(p){
  return {ing,pack,hasIngredientUsage:!!p.used,hasPackagingUsage:!!(p.eventPackagingUsed||p.packagingUsed)};
 }
 function psSaveSharedLabor(){
- const order=Number($('psOrderRate').value),market=Number($('psMarketRate').value);
- if(!Number.isFinite(order)||order<0||!Number.isFinite(market)||market<0){alert('Enter hourly rates of 0 or more.');return}
- d.settings.laborRates={order,market};save();render();
+ const order=Number($('psOrderRate').value),production=Number($('psProductionRate').value),attendance=Number($('psAttendanceRate').value);
+ if([order,production,attendance].some(v=>!Number.isFinite(v)||v<0)){alert('Enter hourly rates of 0 or more.');return}
+ d.settings.laborRates={...d.settings.laborRates,order,production,attendance};save();render();
 }
 const psLaborSettingsRender=renderSettings;
 renderSettings=function(){
@@ -1741,7 +1743,8 @@ renderSettings=function(){
  const card=document.createElement('div');card.className='card';
  card.innerHTML='<h3>Hourly labor rates</h3><p class="muted small">Shared defaults used in calculators. Event hours are set for each event separately.</p>'+
  '<label>Custom order hourly rate ($)</label><input id="psOrderRate" type="number" min="0" step="0.01" value="'+psSharedRate('order')+'">'+
- '<label>Market / event hourly rate ($)</label><input id="psMarketRate" type="number" min="0" step="0.01" value="'+psSharedRate('market')+'">'+
+ '<label>Market / event production ($/hour)</label><input id="psProductionRate" type="number" min="0" step="0.01" value="'+psSharedRate('production')+'">'+
+ '<label>Market / event attendance ($/hour)</label><input id="psAttendanceRate" type="number" min="0" step="0.01" value="'+psSharedRate('attendance')+'">'+
  '<button type="button" id="psLaborSaveButton">Save rates</button>';
  card.querySelector('#psLaborSaveButton').addEventListener('click',psSaveSharedLabor);$('settings').append(card);
 };
@@ -1762,13 +1765,16 @@ psProfitModel=function(p){
  const ingredients=costs.hasIngredientUsage&&!costs.ing.missing.length?costs.ing.total:null;
  const packaging=costs.hasPackagingUsage&&!costs.pack.missing.length?costs.pack.total:null;
  const processing=c.processing===null||c.processing===undefined?null:Number(c.processing);
- const hours=c.hours===null||c.hours===undefined?null:Number(c.hours);
- const labor=hours===null?null:hours*psSharedRate('market');
+ const productionHours=c.productionHours??c.hours;
+ const attendanceHours=c.attendanceHours??(c.hours!==undefined?0:null);
+ const laborProduction=productionHours===null||productionHours===undefined?null:Number(productionHours)*psSharedRate('production');
+ const laborAttendance=attendanceHours===null||attendanceHours===undefined?null:Number(attendanceHours)*psSharedRate('attendance');
+ const labor=laborProduction===null||laborAttendance===null?null:laborProduction+laborAttendance;
  const other=c.other===null||c.other===undefined?null:Number(c.other);
  const expenses=eventExpenses(p),values=[ingredients,packaging,processing,labor,other];
  const valid=values.every(v=>v!==null&&Number.isFinite(v)&&v>=0);
  const total=expenses+values.reduce((sum,v)=>sum+(v===null?0:v),0);
- return {sales,evt:expenses,ingredients,packaging,processing,labor,other,hours,total,profit:sales-total,valid,margin:sales?100*(sales-total)/sales:null,missing:[...costs.ing.missing,...costs.pack.missing]};
+ return {sales,evt:expenses,ingredients,packaging,processing,labor,laborProduction,laborAttendance,other,hours:productionHours,total,profit:sales-total,valid,margin:sales?100*(sales-total)/sales:null,missing:[...costs.ing.missing,...costs.pack.missing]};
 };
 psProfitEdit=function(x){
  const p=d.events.find(v=>v.id===x);if(!p?.report){alert('Save event sales first.');return}
@@ -1783,8 +1789,10 @@ psProfitEdit=function(x){
  '<p class="muted small">Ingredient and packaging costs use the supplies deducted for this event. The amounts above are calculated, not entered twice.</p>'+
  '<label>POS processing fees ($)</label><input name="processing" type="number" min="0" step="0.01" value="'+esc(c.processing??feeSuggestion??'')+'" placeholder="Enter verified fees">'+
  (feeSuggestion!==null?'<p class="muted small">Suggested '+money(feeSuggestion)+' from POS text. Verify against your processor statement before saving.</p>':'<p class="muted small">If your POS import does not list fees, check your processor and enter the verified fee. Enter 0 only if there were none.</p>')+
- '<label>Hours worked for this event</label><input name="hours" type="number" min="0" step="0.25" value="'+esc(c.hours??'')+'" placeholder="Total hours">'+
- '<p class="muted small">Uses shared market rate '+money(psSharedRate('market'))+'/hour. Change your hourly rates in Settings.</p>'+
+ '<label>Production hours</label><input name="productionHours" type="number" min="0" step="0.25" value="'+esc(c.productionHours??c.hours??'')+'" placeholder="Hours preparing pops">'+
+ '<p class="muted small">Production rate: '+money(psSharedRate('production'))+'/hour (Settings).</p>'+
+ '<label>Attendance hours</label><input name="attendanceHours" type="number" min="0" step="0.25" value="'+esc(c.attendanceHours??(c.hours!==undefined?0:''))+'" placeholder="Hours working the market">'+
+ '<p class="muted small">Attendance rate: '+money(psSharedRate('attendance'))+'/hour (Settings). For older reports, previous combined hours appear under production; review and divide them before saving.</p>'+
  '<label>Other production costs ($)</label><input name="other" type="number" min="0" step="0.01" value="'+esc(c.other??'')+'" placeholder="0 if none">'+
  '<p class="muted small">Exclude booth fees, event expenses, ingredients and packaging already calculated above.</p>'+
  '<div class="actions"><button>Save and view profit</button></div></form>');
@@ -1792,7 +1800,7 @@ psProfitEdit=function(x){
 psProfitSave=function(e,x){
  e.preventDefault();const p=d.events.find(v=>v.id===x);if(!p?.report)return;
  const f=e.target.elements,c={...p.report.actualCosts};
- for(const key of ['processing','hours','other']){
+ for(const key of ['processing','productionHours','attendanceHours','other']){
   const raw=f[key].value.trim();
   if(!raw){alert('To view a full profit report, complete each field. Enter 0 only when appropriate.');f[key].focus();return}
   const value=Number(raw);if(!Number.isFinite(value)||value<0){alert('Enter a valid nonnegative number.');f[key].focus();return}
@@ -1805,7 +1813,7 @@ psProfitView=function(x){
  modal('Event profit: '+p.name,
  '<div class="notice"><strong>Recorded sales: '+money(m.sales)+'</strong></div>'+
  '<div class="card"><h3>Cost breakdown</h3>'+
- [['Ingredients',m.ingredients],['Packaging',m.packaging],['POS fees',m.processing],['Labor',m.labor],['Event fees and expenses',m.evt],['Other production costs',m.other]].map(v=>'<div class="item">'+v[0]+': '+(v[1]===null?'Missing':money(v[1]))+'</div>').join('')+'</div>'+
+ [['Ingredients',m.ingredients],['Packaging',m.packaging],['POS fees',m.processing],['Production labor',m.laborProduction],['Attendance labor',m.laborAttendance],['Event fees and expenses',m.evt],['Other production costs',m.other]].map(v=>'<div class="item">'+v[0]+': '+(v[1]===null?'Missing':money(v[1]))+'</div>').join('')+'</div>'+
  (m.valid?'<div class="notice"><strong>Estimated event net contribution: '+money(m.profit)+'</strong><br>Margin: '+(m.margin===null?'N/A':m.margin.toFixed(1)+'%')+'</div>':
  '<div class="notice">Incomplete: missing costs. Revenue less known costs: '+money(m.profit)+'. This is NOT net profit.</div>')+
  '<p class="muted small">Costs use current saved stock prices and the shared market labor rate; changes to those values update the calculation. This is not a tax profit statement.</p>'+
@@ -1820,11 +1828,11 @@ newCustomerQuote=function(x=''){
 };
 psProfitExport=function(){
  const year=Number($('reportYear')?.value)||new Date().getFullYear();
- const rows=[['Event','Date','Sales','Event fees and expenses','Ingredients from stock','Packaging from stock','POS fees','Labor','Other','Costs complete','Event contribution']];
+ const rows=[['Event','Date','Sales','Event fees and expenses','Ingredients from stock','Packaging from stock','POS fees','Production labor','Attendance labor','Other','Costs complete','Event contribution']];
  for(const p of d.events||[]){
   if(!p.report||!String(p.date||'').startsWith(String(year)))continue;
   const m=psProfitModel(p);
-  rows.push([p.name,p.date,m.sales,m.evt,m.ingredients??'',m.packaging??'',m.processing??'',m.labor??'',m.other??'',m.valid?'Yes':'No',m.valid?m.profit:'']);
+  rows.push([p.name,p.date,m.sales,m.evt,m.ingredients??'',m.packaging??'',m.processing??'',m.laborProduction??'',m.laborAttendance??'',m.other??'',m.valid?'Yes':'No',m.valid?m.profit:'']);
  }
  exportCsv('popstock-event-profit-'+year+'.csv',rows);
 };
