@@ -1950,4 +1950,70 @@ function renderCustomers(){
 const psCustomersRender=render;
 render=function(){psCustomersRender();renderCustomers();document.querySelectorAll('main section').forEach(section=>section.classList.toggle('show',section.id===tab))};
 
+
+/* Phase 3 Step 4: supply price history, with unit-aware comparisons. */
+d.priceHistory ||= [];
+popExtraTabs.splice(popExtraTabs.findIndex(([key])=>key==='customers')+1,0,['prices','Price Trends']);
+$('customers').insertAdjacentHTML('afterend','<section id="prices"></section>');
+function psPriceTrack(i,source){
+ if(!i||!i.id||i.packageCost===undefined||!(Number(i.packageSize)>0)||!Number.isFinite(Number(i.packageCost))||Number(i.packageCost)<0)return;
+ const row={id:id(),stockId:i.id,name:i.name,date:new Date().toISOString(),price:Number(i.packageCost),size:Number(i.packageSize),unit:i.packageUnit||i.unit||'each',source};
+ const past=d.priceHistory.filter(v=>v.stockId===i.id).at(-1);
+ if(past&&past.price===row.price&&past.size===row.size&&past.unit===row.unit)return;
+ d.priceHistory.push(row);save();
+}
+const psPriceSaveItem=saveItem;
+saveItem=function(e,x){
+ psPriceSaveItem(e,x);
+ const i=x?d.items.find(v=>v.id===x):d.items[d.items.length-1];
+ if(i&&!isShapeStockItem(i))psPriceTrack(i,'Stock price update');
+};
+function psPriceEntries(item){
+ const events=(d.priceHistory||[]).filter(v=>v.stockId===item.id).map(v=>({...v}));
+ const logged=(d.log||[]).filter(v=>v.type==='Shopping purchase received'&&(v.stockId===item.id||(!v.stockId&&v.name===item.name))).map(v=>({
+  id:'purchase-'+(v.date||'')+'-'+item.id,stockId:item.id,name:v.name,date:v.date,
+  price:Number(v.packageCost),size:Number(v.packageSize),unit:v.packageUnit||item.packageUnit||item.unit,source:'Shopping purchase'
+ }));
+ const rows=events.concat(logged).filter(v=>v.date&&Number.isFinite(v.price)&&v.price>=0&&Number(v.size)>0);
+ rows.sort((a,b)=>String(a.date).localeCompare(String(b.date)));
+ const uniq=new Map();for(const r of rows)uniq.set(r.id,r);
+ return [...uniq.values()];
+}
+function psPriceGroup(item){
+ const all=psPriceEntries(item),groups=new Map();
+ for(const r of all){const unit=String(r.unit||'each').trim().toLowerCase();if(!groups.has(unit))groups.set(unit,[]);groups.get(unit).push(r)}
+ return {all,groups};
+}
+let psPricesSelected='';
+function renderPrices(){
+ const root=$('prices');if(!root)return;
+ const items=(d.items||[]).filter(i=>!isShapeStockItem(i)).slice().sort((a,b)=>String(a.name).localeCompare(String(b.name)));
+ const selected=items.find(i=>i.id===psPricesSelected);
+ root.innerHTML='<div class="row"><h2>Ingredient & Supply Price Trends</h2></div>'+
+ '<p class="muted small">Prices entered through Stock and purchased through Shopping Lists. Comparisons use cost per unit of the same measurement type. Earlier price history is not invented.</p>'+
+ '<label>Choose a supply</label><select id="psPriceItem"><option value="">Select a supply</option>'+
+ items.map(i=>'<option value="'+esc(i.id)+'" '+(selected?.id===i.id?'selected':'')+'>'+esc(i.name)+'</option>').join('')+'</select>'+
+ (selected?psPriceDetail(selected):'<div class="card muted">Choose an ingredient or packaging supply to see its pricing history.</div>');
+ root.querySelector('#psPriceItem')?.addEventListener('change',e=>{psPricesSelected=e.target.value;renderPrices()});
+}
+function psPriceDetail(item){
+ const info=psPriceGroup(item);
+ const currentUnit=String(item.packageUnit||item.unit||'each').trim().toLowerCase();
+ const list=info.groups.get(currentUnit)||[],first=list[0],last=list[list.length-1];
+ const change=first&&last&&list.length>1?((last.price/last.size)-(first.price/first.size)):null;
+ const percent=change!==null&&first.price>0?100*change/(first.price/first.size):null;
+ return '<div class="card"><h3>'+esc(item.name)+'</h3>'+
+ '<p>Current saved price: '+(item.packageCost===undefined?'Not set':money(Number(item.packageCost)))+' / '+(item.packageSize||'?')+' '+esc(item.packageUnit||item.unit||'each')+'</p>'+
+ '<p class="muted small">Recorded price entries: '+info.all.length+'</p>'+
+ (change===null?'<p class="muted small">At least two comparable recorded prices are needed for a trend.</p>':
+ '<p><strong>Change in cost per '+esc(currentUnit)+': '+(change>=0?'+':'')+money(change)+'</strong> ('+(percent>=0?'+':'')+percent.toFixed(1)+'%)</p>')+
+ '</div><div class="card"><h3>Price history</h3>'+
+ (info.all.slice().reverse().map(r=>'<div class="item"><strong>'+money(r.price)+' for '+r.size+' '+esc(r.unit)+'</strong>'+
+ '<div class="muted small">'+esc(String(r.date).slice(0,10))+' · '+esc(r.source||'Recorded')+
+ ' · '+money(r.price/r.size)+' per '+esc(r.unit)+'</div></div>').join('')||'<p class="muted">No price changes or logged purchases yet. The current Stock price is shown above but is not treated as a historical purchase.</p>')+
+ '</div>';
+}
+const psPricePreviousRender=render;
+render=function(){psPricePreviousRender();renderPrices();document.querySelectorAll('main section').forEach(section=>section.classList.toggle('show',section.id===tab))};
+
 save();render();if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
