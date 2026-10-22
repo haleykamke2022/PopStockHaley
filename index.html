@@ -656,7 +656,7 @@ function saveCustomerEstimate(e,x){
 }
 function deleteCustomerEstimate(x){if(!confirm('Delete this quote draft?'))return;d.customerQuotes=d.customerQuotes.filter(i=>i.id!==x);done()}
 const quoteBeforeBusiness=renderBusiness;
-renderBusiness=function(){quoteBeforeBusiness();const root=$('business');if(!root)return;const card=document.createElement('div');card.className='card';card.innerHTML='<h3>Customer quote drafts</h3><button onclick="newCustomerQuote()">+ New estimate</button>'+(alpha(d.customerQuotes,'customer').map(v=>'<div class="item row"><div><strong>'+esc(v.customer||'Untitled')+'</strong><div class="muted small">'+esc(flavorName(v.flavor))+' · '+v.count+' pops · Your total '+money(v.count*v.price)+' · Suggested '+money(v.count*v.suggested)+(v.missing?.length?' · Incomplete':'')+'</div></div><button type="button" class="alt" onclick="newCustomerQuote(\''+v.id+'\')">Edit</button></div>').join('')||'<p class="muted small">No quote drafts yet.</p>');root.insertBefore(card,root.firstChild)};
+renderBusiness=function(){quoteBeforeBusiness();const root=$('business');if(!root)return;const card=document.createElement('div');card.className='card';card.innerHTML='<h3>Customer quote drafts</h3><button onclick="newCustomerQuote()">+ New estimate</button>'+(alpha(d.customerQuotes,'customer').filter(v=>!v.convertedOrderId&&!quoteOrderFor(v.id)).map(v=>'<div class="item row"><div><strong>'+esc(v.customer||'Untitled')+'</strong><div class="muted small">'+esc(flavorName(v.flavor))+' · '+v.count+' pops · Your total '+money(v.count*v.price)+' · Suggested '+money(v.count*v.suggested)+(v.missing?.length?' · Incomplete':'')+'</div></div><button type="button" class="alt" onclick="newCustomerQuote(\''+v.id+'\')">Edit</button></div>').join('')||'<p class="muted small">No quote drafts yet.</p>');root.insertBefore(card,root.firstChild)};
 const quoteBeforeFlavors=renderFlavors;
 renderFlavors=function(){quoteBeforeFlavors();$('flavors')?.insertAdjacentHTML('afterbegin','<div class="actions"><button type="button" class="alt" onclick="go(\'business\');newCustomerQuote()">Instant quote</button></div>')};
 
@@ -1315,15 +1315,17 @@ function convertQuoteToOrder(quoteId){
 function saveQuoteOrder(event,quoteId){
  event.preventDefault();
  const quote=d.customerQuotes.find(q=>q.id===quoteId);
- if(!quote||quoteOrderFor(quoteId)){alert('This estimate has already been converted or is no longer available.');return}
+ if(!quote||quote.convertedOrderId||quoteOrderFor(quoteId)){alert('This estimate has already been converted or is no longer available.');return}
  const f=event.target,name=f.elements.name.value.trim(),date=f.elements.date.value;
  const flavor=d.recipes.find(r=>r.id===quote.flavor),shape=d.shapes.find(s=>s.id===quote.shape),count=Number(quote.count),price=Number(quote.price);
  if(!name||!date||!flavor||!shape||!(Number(shape.yield)>0)||!Number.isInteger(count)||count<=0||!Number.isFinite(price)||price<0){alert('Check the customer name, due date, flavor, shape, quantity and price.');return}
  const order={id:id(),name,date,status:'Planned',lines:[{flavor:flavor.id,shape:shape.id,count}],allocations:[],deducted:false,
   sourceQuoteId:quoteId,quotedPricePerPop:price,quotedTotal:Math.round(count*price*100)/100,orderNotes:f.elements.notes.value,convertedAt:new Date().toISOString()};
  const saved=p1Commit(()=>{
-  if(quoteOrderFor(quoteId))throw Error('An order already exists for this estimate.');
+  if(quote.convertedOrderId||quoteOrderFor(quoteId))throw Error('An order already exists for this estimate.');
   d.orders.push(order);
+  quote.convertedOrderId=order.id;
+  quote.convertedAt=order.convertedAt;
   d.log.push({type:'Quote converted to order',quoteId,orderId:order.id,date:new Date().toISOString()});
  });
  if(saved){$('dialog').close();go('orders')}
@@ -1332,7 +1334,7 @@ const conversionQuoteBusinessBefore=renderBusiness;
 renderBusiness=function(){
  conversionQuoteBusinessBefore();
  const root=$('business');if(!root)return;
- for(const quote of d.customerQuotes){
+ for(const quote of d.customerQuotes.filter(q=>!q.convertedOrderId&&!quoteOrderFor(q.id))){
   const button=[...root.querySelectorAll('button')].find(b=>b.getAttribute('onclick')==="newCustomerQuote('"+quote.id+"')");
   const line=button?.closest('.item');if(!line)continue;
   const prior=quoteOrderFor(quote.id);
