@@ -2586,7 +2586,7 @@ function psQuickOpen(){
  if(!d.categories.some(c=>!isShapeCategory(c))){alert('Add a stock category in Settings first.');return}
  modal('Inventory Quick Start','<p class="muted small">Add several existing supplies at once. These are new entries only; existing stock is never overwritten. Package prices are optional in practice: enter 0 when unknown and update later.</p><form id="psQuickForm" onsubmit="psQuickSave(event)"><div id="psQuickRows"></div><div class="actions"><button type="button" class="alt" id="psAddQuickRow">+ Another supply</button><button type="submit">Save all supplies</button></div></form>');
  const holder=$('psQuickRows');
- for(let i=0;i<3;i++)holder.appendChild(psQuickRow());
+ holder.appendChild(psQuickRow());
  $('psAddQuickRow').addEventListener('click',()=>holder.appendChild(psQuickRow()));
 }
 function psQuickSave(e){
