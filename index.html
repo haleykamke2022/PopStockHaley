@@ -2371,4 +2371,54 @@ renderSettings=function(){
  root.appendChild(card);psReleaseRender();
 };
 
+
+/* Shape grouping is independent of consumable stock categories. */
+d.shapeGroups ||= [];
+function psEditShapeGroup(){
+ modal('Add shape category','<form onsubmit="psSaveShapeGroup(event)"><label>Category name</label><input name="name" required maxlength="70" placeholder="Christmas, Dinos, Halloween..."><div class="actions"><button>Save category</button></div></form>');
+}
+function psSaveShapeGroup(e){
+ e.preventDefault();const name=e.target.elements.name.value.trim();
+ if(!name)return;
+ if(d.shapeGroups.some(c=>c.name.toLowerCase()===name.toLowerCase())){alert('That category already exists.');return}
+ d.shapeGroups.push({id:id(),name});done();
+}
+const psShapeEditBefore=editShape;
+editShape=function(x=''){
+ psShapeEditBefore(x);
+ const form=$('dialogBody')?.querySelector('form');if(!form)return;
+ const sh=d.shapes.find(v=>v.id===x);
+ const el=document.createElement('div');
+ el.innerHTML='<label>Shape category</label><select name="shapeGroup"><option value="">Uncategorized</option>'+
+ d.shapeGroups.slice().sort((a,b)=>a.name.localeCompare(b.name)).map(c=>'<option value="'+esc(c.id)+'" '+(sh?.shapeGroup===c.id?'selected':'')+'>'+esc(c.name)+'</option>').join('')+'</select>'+
+ '<p class="muted small">Create categories from My Shapes. Categories do not affect yields or costing.</p>';
+ form.querySelector('.actions')?.insertAdjacentElement('beforebegin',el);
+};
+const psShapeSaveBefore=saveShape;
+saveShape=function(e,x){
+ const category=e.target.elements.shapeGroup?.value||'';
+ psShapeSaveBefore(e,x);
+ const saved=x?d.shapes.find(v=>v.id===x):d.shapes[d.shapes.length-1];
+ if(saved){saved.shapeGroup=category;save()}
+};
+const psShapeStockBefore=renderStock;
+renderStock=function(){
+ psShapeStockBefore();
+ if(!selected||!shapeCategories().some(c=>c.id===selected))return;
+ const root=$('stock');if(!root)return;
+ const cards=[...root.querySelectorAll('.card')];
+ const list=cards.find(c=>c.querySelector('.item')||c.textContent.includes('No shapes added yet'));
+ if(!list)return;
+ const groups=d.shapeGroups.slice().sort((a,b)=>a.name.localeCompare(b.name));
+ const categories=[...groups,{id:'',name:'Uncategorized'}];
+ const html='<div class="actions"><button type="button" onclick="psEditShapeGroup()">+ Shape category</button></div>'+
+ categories.map(c=>{
+ const members=alpha(d.shapes.filter(sh=>(sh.shapeGroup||'')===c.id));
+ if(!members.length&&c.id==='')return '';
+ return '<details class="card" open><summary style="cursor:pointer;padding:6px 0"><strong>'+esc(c.name)+'</strong> <span class="muted small">('+members.length+')</span></summary>'+
+ (members.map(sh=>'<div class="item"><div class="row"><div><strong>'+esc(sh.name)+'</strong><div class="small muted">'+(sh.yield>0?sh.yield+' pops per cake mix':'Set yield for calculations')+'</div></div><button class="alt" onclick="editShape(\''+sh.id+'\')">Edit</button></div></div>').join('')||'<p class="muted small">No shapes in this category yet.</p>')+'</details>';
+ }).join('');
+ list.outerHTML='<div id="psShapeGroups">'+html+'</div>';
+};
+
 save();render();psWelcomeFirstLaunch();if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
