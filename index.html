@@ -1829,4 +1829,27 @@ psProfitExport=function(){
  exportCsv('popstock-event-profit-'+year+'.csv',rows);
 };
 
+
+/* Keep core event results prominent; tuck optional screenshot tools away. */
+const psSimpleEventReport=eventReport;
+eventReport=function(x){
+ psSimpleEventReport(x);
+ const form=$('dialogBody')?.querySelector('form');if(!form)return;
+ const heading=[...form.querySelectorAll('h3')].find(h=>h.textContent.includes('Import POS screenshot'));
+ if(!heading)return;
+ const details=document.createElement('details');details.className='card';
+ const summary=document.createElement('summary');summary.textContent='Optional: Import POS screenshot';summary.style.cursor='pointer';summary.style.fontWeight='600';
+ details.append(summary);
+ let next=heading.nextElementSibling;
+ const nodes=[heading];
+ while(next&&!(next.matches('label')&&next.textContent.includes('Notes /'))){
+  nodes.push(next);next=next.nextElementSibling;
+ }
+ heading.parentElement.insertBefore(details,heading);
+ for(const node of nodes)details.append(node);
+ heading.remove();
+ const sales=form.querySelector('input[name="sales"]');
+ if(sales){sales.previousElementSibling?.insertAdjacentText('beforeend',' (event-only total)')}
+};
+
 save();render();if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
