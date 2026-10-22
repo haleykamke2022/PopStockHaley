@@ -825,4 +825,34 @@ function evtPack(p,n){const rows=[],errors=[];for(const [key,label] of [['eventB
 const evtOldProgress=progress;progress=function(kind,x){if(kind!=='events')return evtOldProgress(kind,x);const p=d.events.find(v=>v.id===x);if(!p||p.status!=='Planned')return;if(!p.lines?.length||p.lines.some(l=>!d.shapes.some(s=>s.id===l.shape)||!d.recipes.some(r=>r.id===l.flavor)||!Number.isInteger(Number(l.count))||Number(l.count)<=0)){alert('Enter valid event flavors, shapes and counts.');return}const n=p.lines.reduce((a,l)=>a+Number(l.count),0),pack=evtPack(p,n),sticks=addonSticks(p.lines),errors=[...pack.errors,...sticks.errors],ingredients=[];for(const r of popIngredientsOnlyCheck(freshLines(p))){if(!r.supply)errors.push('Missing ingredient '+r.name);else ingredients.push({item:r.supply,qty:r.required})}for(const a of p.allocations||[]){const f=d.freezer.find(v=>v.id===a.freezer);if(!f||Number(f.qty)<Number(a.qty))errors.push('Freezer allocation unavailable')}const totals=addonTotals([...ingredients,...sticks.list,...pack.rows]);errors.push(...totals.errors);if(errors.length){alert('Check event supplies:\n'+[...new Set(errors)].join('\n'));return}if(!confirm('Pull stock for '+n+' event pops, including sticks, wrappers and labels? Actual counts can be reconciled in the event report.'))return;p1Commit(()=>{for(const v of totals.map.values())v.item.qty=+(Number(v.item.qty)-v.qty).toFixed(8);for(const a of p.allocations||[])d.freezer.find(v=>v.id===a.freezer).qty-=Number(a.qty);const used={},packed={};for(const v of ingredients)used[v.item.id]=(used[v.item.id]||0)+v.qty;for(const v of [...sticks.list,...pack.rows])packed[v.item.id]=(packed[v.item.id]||0)+v.qty;Object.assign(p,{status:'In progress',deducted:true,used,usedFreezer:p.allocations||[],eventPackagingUsed:packed,eventPackagingCount:n});d.log.push({type:'Event stock pulled',kind:'events',id:x,date:new Date().toISOString(),used,packagingUsed:packed})})};
 const evtOldReport=saveEventReport;saveEventReport=function(e,x){const p=d.events.find(v=>v.id===x);if(!p?.eventPackagingUsed)return evtOldReport(e,x);const rows=[...e.target.querySelectorAll('.report-row')],counts=rows.map(r=>({made:Number(r.querySelector('.made').value),sold:Number(r.querySelector('.sold').value),frozen:Number(r.querySelector('.frozen').value),other:Number(r.querySelector('.other').value)}));if(counts.some(r=>Object.values(r).some(v=>!Number.isInteger(v)||v<0)||r.sold>r.made||r.frozen+r.other>r.made-r.sold)){e.preventDefault();alert('Correct the actual event quantities.');return}const n=counts.reduce((a,r)=>a+r.made,0),pack=evtPack(p,n),sticks=addonSticks(p.lines.map((l,k)=>({...l,count:counts[k]?.made||0}))),desired=addonTotals([...pack.rows,...sticks.list]),errors=[...pack.errors,...sticks.errors],delta=new Map();for(const [sid,v] of desired.map)delta.set(sid,{item:v.item,amount:v.qty-(Number(p.eventPackagingUsed[sid])||0)});for(const [sid,qty] of Object.entries(p.eventPackagingUsed))if(!delta.has(sid)){const item=d.items.find(v=>v.id===sid);if(item)delta.set(sid,{item,amount:-Number(qty)})}for(const v of delta.values())if(v.amount>Number(v.item.qty)+1e-8)errors.push('Insufficient '+v.item.name+' for additional event pops');if(errors.length){e.preventDefault();alert(errors.join('\n'));return}const previous=p.report;evtOldReport(e,x);if(p.report===previous)return;p1Commit(()=>{for(const v of delta.values())v.item.qty=+(Number(v.item.qty)-v.amount).toFixed(8);p.eventPackagingUsed=Object.fromEntries([...desired.map].map(([sid,v])=>[sid,v.qty]));p.eventPackagingCount=n})};
 
+
+/* Show planned-event supplies in shopping and leave shape-level packaging to sticks only. */
+popPackNeeds=function(lines){return addonSticks(lines).list.map(v=>({supply:v.item,required:v.qty}))};
+const evtShoppingBefore=renderShopping;
+renderShopping=function(){
+ evtShoppingBefore();
+ const p=d[shoppingPlanKind]?.find(v=>v.id===shoppingPlanId);
+ if(!p||shoppingPlanKind!=='events')return;
+ const n=(p.lines||[]).reduce((a,l)=>a+Number(l.count||0),0),pack=evtPack(p,n),container=$('shopping');
+ if(!container)return;
+ const card=document.createElement('div');card.className='card';
+ card.innerHTML='<h3>Required event wrapping and labels</h3><p class="muted small">All '+n+' planned event pops require a wrapper and a label. These supplies are selected under the event, not the popper shape.</p>'+
+ pack.errors.map(msg=>'<p class="bad">'+esc(msg)+'</p>').join('')+
+ pack.rows.map(v=>'<div class="item row"><strong>'+esc(v.item.name)+'</strong><span>'+fmt(v.qty)+' '+esc(v.item.unit||'each')+' needed · '+fmt(Number(v.item.qty)||0)+' available'+(Number(v.item.qty)<v.qty?' · Buy '+fmt(v.qty-Number(v.item.qty)):'')+'</span></div>').join('');
+ container.append(card);
+};
+const evtPlansBefore=renderPlans;
+renderPlans=function(kind){
+ evtPlansBefore(kind);
+ if(kind!=='events')return;
+ for(const p of d.events){
+  const b=[...$('events').querySelectorAll('button')].find(v=>v.getAttribute('onclick')==="editPlan('events','"+p.id+"')");
+  const card=b?.closest('.card');if(!card)continue;
+  const planned=(p.lines||[]).reduce((a,l)=>a+Number(l.count||0),0);
+  const bag=d.items.find(i=>i.id===p.eventBagSupply)?.name||'Not selected';
+  const label=d.items.find(i=>i.id===p.eventLabelSupply)?.name||'Not selected';
+  card.insertAdjacentHTML('beforeend','<div class="notice small">Event wrapping for '+planned+' pops · Bags: '+esc(bag)+' · Labels: '+esc(label)+(p.eventPackagingUsed?' · Stock pulled':' · Not yet deducted')+'</div>');
+ }
+};
+
 save();render();if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
