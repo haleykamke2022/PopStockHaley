@@ -1187,4 +1187,91 @@ copyShop=function(){
  if(navigator.clipboard?.writeText)navigator.clipboard.writeText(output).then(()=>alert('Copied')).catch(()=>prompt('Copy list:',output));else prompt('Copy list:',output);
 };
 
+
+/* Treat sink water as a free, unlimited recipe ingredient. */
+function freeWater(n){return /^(water|tap water|sink water)$/i.test(String(n||'').trim())}
+const priorReqWater=requirements;
+requirements=function(lines){return priorReqWater(lines).filter(r=>!freeWater(r.name||d.items.find(i=>i.id===r.id)?.name))};
+const priorCostWater=p1Cost;
+p1Cost=function(part){if(freeWater(part.name||d.items.find(i=>i.id===part.id)?.name))return {cost:0,unknown:false,source:'Free tap water'};return priorCostWater(part)};
+costPart=p1Cost;
+/* Keep a purchase record visible even after receipt removes the shortage. */
+function receiptRows(){
+ const current=shopNeeds().filter(r=>!freeWater(r.name)),seen=new Set(current.map(r=>r.key));
+ const saved=d.shoppingChecklists[shopKey()]?.bought||{};
+ for(const [key,v] of Object.entries(saved)){
+  if(seen.has(key))continue;
+  const stock=key.startsWith('s:')?d.items.find(i=>i.id===key.slice(2)):null;
+  const r=v&&typeof v==='object'?v:null;
+  if(r||stock)current.push({key,name:r?.name||stock?.name||'Purchased item',id:r?.id||stock?.id||'',unit:r?.unit||stock?.unit||'each',have:Number(stock?.qty)||0,need:r?.need||'Purchased'});
+ }
+ return current.sort((a,b)=>a.name.localeCompare(b.name));
+}
+function receiveOpen(key){
+ const row=receiptRows().find(r=>r.key===key);if(!row||freeWater(row.name))return;
+ const stock=d.items.find(i=>i.id===row.id)||d.items.find(i=>!isShapeStockItem(i)&&normal(i.name)===normal(row.name));
+ const cats=alpha(d.categories.filter(c=>!shapeCategories().some(s=>s.id===c.id)));
+ const unit=stock?.packageUnit||row.unit||'oz';
+ modal('Add shopping purchase to stock','<form onsubmit="receiveSave(event)"><input name="shoppingKey" type="hidden" value="'+esc(key)+'">'+
+ '<p class="notice">Record your purchase. It increases inventory once; recipe production deducts it later.</p>'+
+ '<label>Supply name</label><input name="itemName" required value="'+esc(stock?.name||row.name)+'">'+
+ '<label>Category</label><select name="category">'+cats.map(c=>'<option value="'+esc(c.id)+'" '+(stock?.type===c.id?'selected':'')+'>'+esc(c.name)+'</option>').join('')+'</select>'+
+ '<div class="formgrid"><div><label>Packages purchased</label><input name="packages" type="number" min="0.000001" step="any" value="1" required></div>'+
+ '<div><label>Package type</label><select name="packageType">'+['bag','box','bottle','container','jar','pack','tub'].map(v=>'<option value="'+v+'" '+((stock?.unit||'pack')===v?'selected':'')+'>'+v+'</option>').join('')+'</select></div>'+
+ '<div><label>Size per package</label><input name="size" type="number" min="0.000001" step="any" value="'+(Number(stock?.packageSize)>0?stock.packageSize:1)+'" required></div>'+
+ '<div><label>Size unit</label><select name="sizeUnit">'+unitOptions.filter(v=>v!=='other').map(v=>'<option value="'+esc(v)+'" '+(v===unit?'selected':'')+'>'+esc(v)+'</option>').join('')+'</select></div>'+
+ '<div class="full"><label>Price per package ($)</label><input name="price" type="number" min="0" step="0.01" value="'+(Number(stock?.packageCost)||0)+'" required></div></div>'+
+ '<div class="actions"><button>Add to My Stock and mark bought</button></div></form>');
+}
+function receiveSave(e){
+ e.preventDefault();const f=e.target,key=f.elements.shoppingKey.value,row=receiptRows().find(r=>r.key===key);if(!row||freeWater(row.name))return;
+ const name=f.elements.itemName.value.trim(),category=f.elements.category.value,packages=Number(f.elements.packages.value),size=Number(f.elements.size.value),price=Number(f.elements.price.value),unit=f.elements.sizeUnit.value,packType=f.elements.packageType.value;
+ if(!name||!(packages>0)||!(size>0)||!Number.isFinite(price)||price<0){alert('Enter valid purchase quantities, price and package details.');return}
+ const old=d.items.find(i=>i.id===row.id)||d.items.find(i=>!isShapeStockItem(i)&&normal(i.name)===normal(name));
+ let increase=packages;
+ if(old){
+  if(normal(old.unit||'pack')!==normal(packType)){
+   increase=convertedAmount(packages*size,unit,old.unit);
+   if(increase===null){alert('Existing stock uses '+old.unit+'. This purchase cannot be converted safely. Update its stock unit before adding the purchase.');return}
+  }else if(Number(old.qty)>0&&Number(old.packageSize)>0&&old.packageUnit&&(Number(old.packageSize)!==size||normal(old.packageUnit)!==normal(unit))){
+   alert('Existing stock has a different package size. Update or use that stock separately to avoid mixing package quantities.');return;
+  }
+ }
+ const list=shopKey();
+ const saved=p1Commit(()=>{
+  let item=old;
+  if(item){item.qty=+(Number(item.qty||0)+increase).toFixed(8);item.packageCost=price;item.packageSize=size;item.packageUnit=unit}
+  else{item={id:id(),name,type:category,qty:packages,unit:packType,min:0,restock:0,restockEnabled:false,manualRestock:false,packageCost:price,packageSize:size,packageUnit:unit};d.items.push(item)}
+  item.manualRestock=false;
+  for(const recipe of d.recipes||[])for(const part of recipe.parts||[])if(normal(part.name||'')===normal(row.name)&&(!part.id||!d.items.some(i=>i.id===part.id)))part.id=item.id;
+  const state=d.shoppingChecklists[list]||{bought:{},archived:false};
+  state.bought[key]={name:row.name,id:item.id,unit:row.unit,need:row.need};state.archived=false;d.shoppingChecklists[list]=state;
+  d.log.push({type:'Shopping purchase received',name:item.name,stockId:item.id,packages,packageSize:size,packageUnit:unit,packageCost:price,date:new Date().toISOString()});
+ });
+ if(saved){$('dialog').close();render()}
+}
+const receiptPriorRender=renderShopping;
+renderShopping=function(){
+ receiptPriorRender();
+ const card=$('shopping')?.querySelectorAll('.card')?.[1];if(!card)return;
+ const list=d.shoppingChecklists[shopKey()]||{bought:{},archived:false};if(list.archived)return;
+ const rows=receiptRows(),pending=rows.filter(r=>!list.bought[r.key]),bought=rows.filter(r=>list.bought[r.key]);
+ card.innerHTML='<div class="row"><h3>Items to buy</h3><span class="pill">'+bought.length+' of '+rows.length+' bought</span></div>'+
+ (pending.length?pending.map(r=>'<div class="item"><div class="row"><div><strong>'+esc(r.name)+'</strong><div class="small muted">'+esc(r.need)+' · Have '+fmt(r.have)+' '+esc(r.unit)+'</div></div><div class="actions"><button class="alt" data-receipt="add" data-key="'+esc(r.key)+'">Add purchase to stock</button><button class="alt" data-receipt="bought" data-key="'+esc(r.key)+'">Bought</button></div></div>').join(''):'<p class="muted">'+(rows.length?'Everything bought.':'Nothing needs buying.')+'</p>')+
+ (bought.length?'<details><summary>Purchased ('+bought.length+')</summary>'+bought.map(r=>'<div class="item row"><span>'+esc(r.name)+'</span><button class="alt" data-receipt="undo" data-key="'+esc(r.key)+'">Undo</button></div>').join('')+'</details>':'')+
+ (rows.length&&!pending.length?'<div class="actions"><button class="danger" data-receipt="delete">Delete completed list</button></div>':'')+
+ '<p class="muted small">Stock is added when purchased. It is deducted when order or event production starts.</p>';
+ card.onclick=function(e){
+  const btn=e.target.closest('[data-receipt]');if(!btn||!card.contains(btn))return;
+  const action=btn.dataset.receipt,key=btn.dataset.key,entry=rows.find(r=>r.key===key);
+  if(action==='add')return receiveOpen(key);
+  if(action==='delete'){
+   if(!confirm('Delete this completed shopping checklist? Inventory and plans remain unchanged.'))return;
+   d.shoppingChecklists[shopKey()]={bought:{},archived:true};save();renderShopping();return;
+  }
+  if(action==='bought'&&entry){const state=d.shoppingChecklists[shopKey()]||{bought:{},archived:false};state.bought[key]={name:entry.name,id:entry.id,unit:entry.unit,need:entry.need};d.shoppingChecklists[shopKey()]=state;save();renderShopping();return}
+  if(action==='undo')shopChecklistAction('undo',key);
+ };
+};
+
 save();render();if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
