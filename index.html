@@ -1116,7 +1116,7 @@ function popPaintNavigation(){
 const popNavPriorRender=render;
 render=function(){popNavPriorRender();popPaintNavigation()};
 document.addEventListener('click',function(event){
- if(!popMoreOpen||event.target.closest('#nav'))return;
+ if(!popMoreOpen||event.composedPath().some(node=>node?.id==='nav'))return;
  popMoreOpen=false;popPaintNavigation();
 });
 document.addEventListener('keydown',function(event){
@@ -1272,6 +1272,23 @@ renderShopping=function(){
   if(action==='bought'&&entry){const state=d.shoppingChecklists[shopKey()]||{bought:{},archived:false};state.bought[key]={name:entry.name,id:entry.id,unit:entry.unit,need:entry.need};d.shoppingChecklists[shopKey()]=state;save();renderShopping();return}
   if(action==='undo')shopChecklistAction('undo',key);
  };
+};
+
+
+/* Home quick-action forms open over Home, so cancel returns there. */
+const popQuickPriorHome=renderHome;
+renderHome=function(){
+ popQuickPriorHome();
+ const actions=$('home')?.querySelector('.home-actions');if(!actions)return;
+ const buttons=[...actions.querySelectorAll('button')];
+ const launch=[()=>editPlan('orders'),()=>editPlan('events'),()=>editItem(),()=>{
+  if(d.settings?.showBusinessTab===false){d.settings.showBusinessTab=true;save()}
+  newCustomerQuote();
+ }];
+ buttons.forEach((button,index)=>{
+  if(!launch[index])return;
+  button.onclick=function(){tab='home';launch[index]()};
+ });
 };
 
 save();render();if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
