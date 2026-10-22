@@ -800,7 +800,8 @@ popSaveActual=function(e,x){
  const madeLines=p.lines.map((l,k)=>({...l,count:made[k]})),packagedLines=p.lines.map((l,k)=>({...l,count:packed[k]}));
  const packaging=p1PackAmounts(p1PackNeeds(madeLines,['popStick']).concat(p1PackNeeds(packagedLines,['popBag','popLabel'])));
  const issues=[...packaging.issues],additional=new Map();
- for(const r of popIngredientsOnlyCheck(madeLines)){if(!r.supply){issues.push('Missing ingredient '+r.name);continue}
+ const extraFreshLines=freshLines(p).map((l,k)=>({...l,count:(Number(l.count)||0)+Math.max(0,made[k]-Number(p.lines[k].count))}));
+ for(const r of popIngredientsOnlyCheck(extraFreshLines)){if(!r.supply){issues.push('Missing ingredient '+r.name);continue}
   const delta=Math.max(0,r.required-(Number(p.used?.[r.supply.id])||0));if(delta>1e-8){const row=additional.get(r.supply.id)||{item:r.supply,qty:0};row.qty+=delta;additional.set(r.supply.id,row)}}
  const combined=new Map();for(const v of [...additional.values(),...packaging.map.values()]){const r=combined.get(v.item.id)||{item:v.item,qty:0};r.qty+=v.qty;combined.set(v.item.id,r)}
  for(const v of combined.values())if(Number(v.item.qty)+1e-8<v.qty)issues.push(v.item.name+': need '+fmt(v.qty)+' '+v.item.unit+', have '+fmt(Number(v.item.qty)||0));
