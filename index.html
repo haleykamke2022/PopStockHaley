@@ -2333,4 +2333,42 @@ function psShowSettingsTab(key){
  root.querySelectorAll('[data-settings-panel]').forEach(p=>p.hidden=p.dataset.settingsPanel!==key);
 }
 
+
+/* Phase 4 Step 5: release checklist state lives separately from business data. */
+const psReleaseChecklist=[
+ ['onboarding','First-launch welcome and Getting Started'],
+ ['stock','Stock, recipes, categories and cost calculations'],
+ ['orders','Quotes, orders and events'],
+ ['production','Production, shopping and freezer workflows'],
+ ['reports','Customer history, profit and price reports'],
+ ['backup','Backup download and read-only backup checks'],
+ ['mobile','Mobile layout, More menu and Settings navigation']
+];
+function psReleaseChecks(){
+ try{const value=JSON.parse(localStorage.getItem('popstock_release_checks_v1')||'{}');return value&&typeof value==='object'&&!Array.isArray(value)?value:{}}catch{return {}}
+}
+function psReleaseToggle(key,checked){
+ if(!psReleaseChecklist.some(v=>v[0]===key))return;
+ const value=psReleaseChecks();value[key]=!!checked;
+ try{localStorage.setItem('popstock_release_checks_v1',JSON.stringify(value))}catch{}
+ psReleaseRender();
+}
+function psReleaseRender(){
+ const root=$('psReleaseChecklist');if(!root)return;
+ const checked=psReleaseChecks(),count=psReleaseChecklist.filter(([id])=>checked[id]).length;
+ root.innerHTML='<p class="muted small">Track your own regression tests on this device. Checks are not proof of successful testing and are not synced to other devices.</p>'+
+ '<p><strong>'+count+' of '+psReleaseChecklist.length+' checks marked complete</strong></p>'+
+ psReleaseChecklist.map(([id,label])=>'<label style="display:flex;align-items:center;gap:10px;padding:9px 0"><input type="checkbox" style="width:auto;min-height:auto" data-release-check="'+id+'" '+(checked[id]?'checked':'')+'><span>'+esc(label)+'</span></label>').join('')+
+ '<p class="muted small">Before public release, also confirm that your latest GitHub Pages deployment succeeds and test on an additional device. Cloud syncing is not active.</p>';
+ root.querySelectorAll('[data-release-check]').forEach(el=>el.addEventListener('change',()=>psReleaseToggle(el.dataset.releaseCheck,el.checked)));
+}
+const psReleaseSettingsBefore=renderSettings;
+renderSettings=function(){
+ psReleaseSettingsBefore();
+ const root=$('settings')?.querySelector('[data-settings-panel="general"]');if(!root)return;
+ const card=document.createElement('div');card.className='card';
+ card.innerHTML='<h3>Release Readiness</h3><div id="psReleaseChecklist"></div>';
+ root.appendChild(card);psReleaseRender();
+};
+
 save();render();psWelcomeFirstLaunch();if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
