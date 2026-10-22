@@ -1047,4 +1047,44 @@ copyShop=function(){const p=d[shoppingPlanKind]?.find(v=>v.id===shoppingPlanId);
 const manualHomeBefore=renderHome;
 renderHome=function(){manualHomeBefore();const root=$('home');if(!root)return;for(const v of root.querySelectorAll('.home-label,h3'))if(v.textContent==='Low-stock supplies')v.textContent='Restock needed';const title=[...root.querySelectorAll('h3')].find(v=>v.textContent==='Restock needed'),lines=title?.closest('.card')?.querySelectorAll('.home-line')||[];homeLowStock().slice(0,6).forEach((i,k)=>{if(!i.manualRestock||!lines[k])return;const detail=lines[k].querySelector('.small.muted');if(detail)detail.textContent=catName(i)+' · '+fmt(Number(i.qty)||0)+' '+(i.unit||'each')+' left · Marked for restock'})};
 
+
+/* Home Restock Needed is a direct shortcut to the actionable general restock list. */
+function openRestockNeeded(){
+ shoppingPlanKind='';shoppingPlanId='';shoppingEvent='';
+ go('shopping');
+}
+const directRestockHomeBefore=renderHome;
+renderHome=function(){
+ directRestockHomeBefore();
+ const root=$('home');if(!root)return;
+ const stat=[...root.querySelectorAll('.home-stat')].find(b=>b.querySelector('.home-label')?.textContent==='Restock needed');
+ if(stat){stat.onclick=openRestockNeeded;stat.setAttribute('aria-label','Open restock needed list')}
+ const title=[...root.querySelectorAll('h3')].find(h=>h.textContent==='Restock needed');
+ const card=title?.closest('.card');if(!card)return;
+ const view=card.querySelector('.row button');
+ if(view){view.textContent='View restock list';view.onclick=openRestockNeeded}
+ const rows=card.querySelectorAll('.home-line'),items=homeLowStock().slice(0,6);
+ items.forEach((item,k)=>{
+  const button=rows[k]?.querySelector('button');if(!button)return;
+  button.textContent='View list';button.onclick=openRestockNeeded;
+ });
+};
+const directRestockShopBefore=renderShopping;
+renderShopping=function(){
+ directRestockShopBefore();
+ const p=d[shoppingPlanKind]?.find(v=>v.id===shoppingPlanId);
+ if(p)return;
+ const card=$('shopping')?.querySelectorAll('.card')?.[1];if(!card)return;
+ const entries=card.querySelectorAll('.item'),items=homeLowStock();
+ items.forEach((item,k)=>{
+  const entry=entries[k];if(!entry)return;
+  const actions=entry.querySelector('.actions')||document.createElement('div');
+  if(!actions.parentElement){actions.className='actions';entry.append(actions)}
+  const edit=document.createElement('button');
+  edit.type='button';edit.className='alt';edit.textContent='Update stock';
+  edit.addEventListener('click',()=>editItem(item.id));
+  actions.append(edit);
+ });
+};
+
 save();render();if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
