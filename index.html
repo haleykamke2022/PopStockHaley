@@ -2016,4 +2016,63 @@ function psPriceDetail(item){
 const psPricePreviousRender=render;
 render=function(){psPricePreviousRender();renderPrices();document.querySelectorAll('main section').forEach(section=>section.classList.toggle('show',section.id===tab))};
 
+
+/* Phase 3 Step 5: non-cloud sync readiness. Existing app storage and restore are unchanged. */
+const psSyncMetadataKey='popstock_sync_readiness_v1';
+function psSyncMetadata(){
+ let meta;try{meta=JSON.parse(localStorage.getItem(psSyncMetadataKey)||'null')}catch{}
+ if(meta&&typeof meta.installId==='string'&&meta.installId.length>10)return meta;
+ meta={schema:1,installId:'ps-'+id(),createdAt:new Date().toISOString()};
+ try{localStorage.setItem(psSyncMetadataKey,JSON.stringify(meta))}catch{}
+ return meta;
+}
+function psSyncAudit(){
+ const categories=['items','recipes','orders','events','customerQuotes','freezer','shapes','shoppingChecklists','priceHistory'];
+ const counts={},problems=[];
+ for(const key of categories){
+  if(key==='shoppingChecklists'){counts[key]=Object.keys(d[key]||{}).length;continue}
+  if(d[key]!==undefined&&!Array.isArray(d[key]))problems.push(key+' should be a list');
+  counts[key]=Array.isArray(d[key])?d[key].length:0;
+  if(Array.isArray(d[key])){
+   const ids=new Set();
+   for(const record of d[key]){
+    if(!record||typeof record!=='object'){problems.push(key+' contains an invalid record');continue}
+    if(!record.id)continue;
+    if(ids.has(record.id))problems.push(key+' has duplicate record IDs');
+    ids.add(record.id);
+   }
+  }
+ }
+ let bytes=0;try{bytes=new Blob([JSON.stringify(d)]).size}catch{problems.push('Unable to serialize app data')}
+ return {counts,problems:[...new Set(problems)],bytes};
+}
+function psExportSyncManifest(){
+ const meta=psSyncMetadata(),audit=psSyncAudit();
+ if(audit.problems.length){alert('Readiness issues found. Export a normal PopStock backup and review the list before attempting future migration.');return}
+ const manifest={format:'popstock-sync-readiness',version:1,createdAt:new Date().toISOString(),installId:meta.installId,storageKey:NEW,counts:audit.counts,approxDataBytes:audit.bytes,note:'Metadata only. This file is NOT an app-data backup and cannot restore records.'};
+ const blob=new Blob([JSON.stringify(manifest,null,2)],{type:'application/json'});
+ const url=URL.createObjectURL(blob),link=document.createElement('a');
+ link.href=url;link.download='popstock-sync-readiness-'+new Date().toISOString().slice(0,10)+'.json';link.click();
+ setTimeout(()=>URL.revokeObjectURL(url),1500);
+}
+const psReadinessSettings=renderSettings;
+renderSettings=function(){
+ psReadinessSettings();
+ const meta=psSyncMetadata(),audit=psSyncAudit(),card=document.createElement('div');
+ card.className='card';
+ card.innerHTML='<h3>Sync Readiness</h3>'+
+ '<p class="muted small">Cloud sync is not enabled. This installation saves its records on this device only. Personal and Beta are separate.</p>'+
+ '<div class="notice"><strong>Installation ID</strong><div class="small" style="overflow-wrap:anywhere">'+esc(meta.installId)+'</div>'+
+ '<p class="small">Saved app data: '+audit.bytes.toLocaleString()+' bytes</p>'+
+ '<p class="small">Inventory: '+audit.counts.items+' · Recipes: '+audit.counts.recipes+' · Orders: '+audit.counts.orders+' · Events: '+audit.counts.events+' · Quotes: '+audit.counts.customerQuotes+'</p></div>'+
+ (audit.problems.length?'<p class="bad">Readiness issues: '+esc(audit.problems.join('; '))+'</p>':
+ '<p class="muted small">Basic local data checks passed. This does not verify cloud synchronization or guarantee recoverability.</p>')+
+ '<div class="actions"><button type="button" class="alt" data-readiness-backup>Download full data backup</button>'+
+ '<button type="button" class="alt" data-readiness-manifest>Export readiness summary</button></div>'+
+ '<p class="muted small">Keep your full backup safe before changing devices. The readiness summary contains counts only, not your recipes or orders. No uploads or automatic merges occur.</p>';
+ card.querySelector('[data-readiness-backup]').addEventListener('click',()=>backup());
+ card.querySelector('[data-readiness-manifest]').addEventListener('click',psExportSyncManifest);
+ $('settings').append(card);
+};
+
 save();render();if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
