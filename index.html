@@ -105,7 +105,7 @@ document.addEventListener('pointercancel',endCategoryDrag);
 // PopStock recipe-first improvements. Existing localStorage key and saved records are preserved.
 const recipeParts = r => (r.parts||[]).map(p=>{
  const supply=d.items.find(i=>i.id===p.id);
- return {name:p.name||supply?.name||'',qty:Number(p.qty)||0,amountText:p.amountText||'',unit:p.unit||supply?.unit||'pack',id:p.id||'',recipeCostPrice:p.recipeCostPrice,recipeCostSize:p.recipeCostSize,recipeCostSizeText:p.recipeCostSizeText,recipeCostUnit:p.recipeCostUnit,costLibraryId:p.costLibraryId||''};
+ return {name:p.name||supply?.name||'',qty:Number(p.qty)||0,amountText:p.amountText||'',unit:p.unit||supply?.unit||'pack',id:p.id||'',recipeCostPrice:p.recipeCostPrice,recipeCostSize:p.recipeCostSize,recipeCostSizeText:p.recipeCostSizeText,recipeCostUnit:p.recipeCostUnit};
 }).filter(p=>p.name);
 const normal=s=>String(s||'').trim().toLowerCase().replace(/\s+/g,' ');
 let matchSupply=p=>d.items.find(i=>!isShapeStockItem(i)&&((p.id&&i.id===p.id)||normal(i.name)===normal(p.name))&&normal(i.unit||'pack')===normal(p.unit||'pack'));
@@ -161,59 +161,22 @@ function updateIngredientUnitSuggestions(input){
 }
 
 function recipeSupplyMatches(input){
- const el=input.closest('.ingredient'),menu=el?.querySelector('.inventory-suggestions');
- if(!menu)return;
- const term=normal(input.value);
- menu.replaceChildren();
- if(!term){menu.hidden=true;return}
- const stock=d.items.filter(i=>!isShapeStockItem(i)&&normal(i.name).includes(term))
-   .map(i=>({name:i.name,kind:'stock',item:i}));
- const costOnly=(d.costLibrary||[]).filter(i=>normal(i.name).includes(term))
-   .map(i=>({name:i.name,kind:'cost',item:i}));
- const choices=[...stock,...costOnly].sort((a,b)=>
-  Number(normal(b.name).startsWith(term))-Number(normal(a.name).startsWith(term))||
-  a.name.localeCompare(b.name)||a.kind.localeCompare(b.kind)).slice(0,12);
- if(!choices.length){menu.hidden=true;return}
- menu.hidden=false;
- const heading=document.createElement('div');
- heading.className='small muted';heading.style.margin='4px 0 6px';
- heading.textContent='Matching My Stock and Cost Library items — tap to select';
- menu.append(heading);
- for(const choice of choices){
-  const button=document.createElement('button');
-  button.type='button';button.className='alt';
-  button.style.cssText='display:block;width:100%;text-align:left;margin:4px 0;padding:10px 12px;white-space:normal';
-  const v=choice.item;
-  button.textContent=choice.kind==='cost'
-   ?v.name+' — Cost Library only · '+money(v.price)+' for '+fmt(Number(v.size)||0)+' '+(v.unit||'')
-   :v.name+' — My Stock · '+fmt(Number(v.qty)||0)+' '+(v.unit||'each')+' available';
-  button.addEventListener('click',()=>{
-   input.value=v.name;
-   delete el.dataset.supplyId;
-   if(choice.kind==='stock')el.dataset.supplyId=v.id;
-   const unit=el.querySelector('.ingredient-unit');
-   if(choice.kind==='cost'){
-    // Leave quantity blank so users enter the amount used, not the purchased amount.
-    if(!unit.value.trim())unit.value=v.unit||'';
-    el.dataset.costLibraryId=v.id;
-   }else{
-    delete el.dataset.costLibraryId;
-    if(!unit.value.trim())unit.value=v.packageUnit||v.unit||'';
-   }
-   menu.hidden=true;menu.replaceChildren();
-   updateIngredientUnitSuggestions(input);
-   el.querySelector('.ingredient-qty')?.focus();
-  });
-  menu.append(button);
- }
+ const el=input.closest('.ingredient'),menu=el?.querySelector('.inventory-suggestions');if(!menu)return;
+ menu.replaceChildren();const term=normal(input.value);if(!term){menu.hidden=true;return}
+ const items=alpha(d.items.filter(i=>!isShapeStockItem(i)&&normal(i.name).includes(term))).slice(0,12);
+ menu.hidden=!items.length;if(!items.length)return;
+ const title=document.createElement('div');title.className='small muted';title.textContent='Supplies in My Stock';menu.append(title);
+ for(const item of items){const button=document.createElement('button');button.type='button';button.className='alt';button.style.cssText='display:block;width:100%;text-align:left;margin:4px 0;padding:10px 12px;white-space:normal';
+ button.textContent=item.name+' · '+fmt(Number(item.qty)||0)+' '+(item.unit||'each')+' available';
+ button.onclick=()=>{input.value=item.name;el.dataset.supplyId=item.id;const unit=el.querySelector('.ingredient-unit');if(!unit.value.trim())unit.value=item.packageUnit||item.unit||'';menu.hidden=true;menu.replaceChildren();updateIngredientUnitSuggestions(input);el.querySelector('.ingredient-qty')?.focus()};menu.append(button)}
 }
 function ingredientRow(p={}){
  let el=document.createElement('div');el.className='pair ingredient';
  const name=p.name||d.items.find(i=>i.id===p.id)?.name||'';
  const unit=p.unit||d.items.find(i=>i.id===p.id)?.unit||'';
  const listId='recipe-units-'+Math.random().toString(36).slice(2);
- if(p.id&&d.items.some(i=>i.id===p.id))el.dataset.supplyId=p.id;if(p.costLibraryId)el.dataset.costLibraryId=p.costLibraryId;
- el.innerHTML=`<label>Ingredient name</label><input class="ingredient-name" placeholder="Start typing a supply name..." autocomplete="off" value="${esc(name)}" oninput="delete this.closest('.ingredient').dataset.supplyId;delete this.closest('.ingredient').dataset.costLibraryId;updateIngredientUnitSuggestions(this);recipeSupplyMatches(this)" onfocus="recipeSupplyMatches(this)"><div class="inventory-suggestions" hidden style="margin:7px 0 12px"></div><div class="formgrid"><div><label>Amount Used</label><input class="ingredient-qty" type="text" inputmode="text" autocomplete="off" placeholder="1/4, 1/2, 1 1/2, or 0.25" value="${esc(p.amountText||(p.qty??''))}"></div><div><label>Unit</label><input class="ingredient-unit" list="${listId}" placeholder="Start typing or choose a unit" value="${esc(unit)}" oninput="this.dataset.userChosen='1'"><datalist id="${listId}"></datalist></div></div><div class="unit-suggestions" style="margin-top:9px;margin-bottom:8px"></div><div class="recipe-only-cost" style="margin-top:10px;padding:10px;border:1px solid #ddd;border-radius:10px"><strong class="small">Optional recipe-only pricing</strong><p class="muted small">For ingredients not in My Stock. Enter what you paid and the package size; this affects pricing only, not stock.</p><div class="formgrid"><div><label>Purchase price ($)</label><input class="recipe-cost-price" type="number" min="0" step="0.01" placeholder="e.g. 5.99" value="${esc(p.recipeCostPrice??'')}"></div><div><label>Purchased amount</label><input class="recipe-cost-size" type="text" inputmode="text" placeholder="e.g. 16 or 1/2" value="${esc(p.recipeCostSizeText??(p.recipeCostSize??''))}"></div><div><label>Purchased unit</label><input class="recipe-cost-unit" type="text" placeholder="e.g. oz, lb, cup" value="${esc(p.recipeCostUnit||'')}"></div></div></div><button type="button" class="alt" style="margin-top:7px" onclick="this.parentElement.remove()">Remove ingredient</button>`;
+ if(p.id&&d.items.some(i=>i.id===p.id))el.dataset.supplyId=p.id;
+ el.innerHTML=`<label>Ingredient name</label><input class="ingredient-name" placeholder="Start typing a supply name..." autocomplete="off" value="${esc(name)}" oninput="delete this.closest('.ingredient').dataset.supplyId;updateIngredientUnitSuggestions(this);recipeSupplyMatches(this)" onfocus="recipeSupplyMatches(this)"><div class="inventory-suggestions" hidden style="margin:7px 0 12px"></div><div class="formgrid"><div><label>Amount Used</label><input class="ingredient-qty" type="text" inputmode="text" autocomplete="off" placeholder="1/4, 1/2, 1 1/2, or 0.25" value="${esc(p.amountText||(p.qty??''))}"></div><div><label>Unit</label><input class="ingredient-unit" list="${listId}" placeholder="Start typing or choose a unit" value="${esc(unit)}" oninput="this.dataset.userChosen='1'"><datalist id="${listId}"></datalist></div></div><div class="unit-suggestions" style="margin-top:9px;margin-bottom:8px"></div><div class="recipe-only-cost" style="margin-top:10px;padding:10px;border:1px solid #ddd;border-radius:10px"><strong class="small">Optional recipe-only pricing</strong><p class="muted small">For ingredients not in My Stock. Enter what you paid and the package size; this affects pricing only, not stock.</p><div class="formgrid"><div><label>Purchase price ($)</label><input class="recipe-cost-price" type="number" min="0" step="0.01" placeholder="e.g. 5.99" value="${esc(p.recipeCostPrice??'')}"></div><div><label>Purchased amount</label><input class="recipe-cost-size" type="text" inputmode="text" placeholder="e.g. 16 or 1/2" value="${esc(p.recipeCostSizeText??(p.recipeCostSize??''))}"></div><div><label>Purchased unit</label><input class="recipe-cost-unit" type="text" placeholder="e.g. oz, lb, cup" value="${esc(p.recipeCostUnit||'')}"></div></div></div><button type="button" class="alt" style="margin-top:7px" onclick="this.parentElement.remove()">Remove ingredient</button>`;
  $('ingredients').append(el);updateIngredientUnitSuggestions(el.querySelector('.ingredient-name'));
 }
 partRow=ingredientRow;
@@ -223,7 +186,7 @@ editFlavor=function(x=''){
  modal(x?'Edit flavor':'New flavor',`<form onsubmit="saveFlavor(event,'${x}')"><label>Flavor name</label><input name="name" value="${esc(r.name)}" required><h3>Recipe Ingredients</h3><div class="notice">Enter ingredients and amounts for one full batch. No supplies need to be in stock. Enter the ingredient name, Amount Used (like 1/3, 1 1/2, or 0.5), and unit. Check imported text before saving.</div><div class="pair"><strong>Import ingredients from a recipe photo</strong><p class="muted small">Upload a screenshot, choose a photo, or use your phone camera. Review the recognized text and ingredients before saving. Photo reading needs internet.</p><input id="recipePhoto" type="file" accept="image/*" onchange="recipePhotoChosen(this)"><button type="button" class="alt" style="margin-top:8px" onclick="document.getElementById('recipePhoto').setAttribute('capture','environment');document.getElementById('recipePhoto').click()">Take picture</button><p id="photoStatus" class="small muted" role="status"></p><div id="photoPreview"></div><label>Text from photo (editable)</label><textarea id="photoText" rows="4" placeholder="Recognized ingredients appear here. You can also paste recipe text."></textarea><button type="button" class="alt" style="margin-top:8px" onclick="parsePhotoText()">Add ingredients from text</button></div><div id="ingredients"></div><button type="button" class="alt" onclick="ingredientRow()">+ Add ingredient manually</button><div class="actions"><button>Save flavor</button>${x?`<button type="button" class="danger" onclick="removeFlavor('${x}')">Delete</button>`:''}</div></form>`);
  recipeParts(r).forEach(ingredientRow);
 };
-saveFlavor=function(e,x){e.preventDefault();let f=e.target,parts=[...document.querySelectorAll('.ingredient')].map(el=>({name:el.querySelector('.ingredient-name').value.trim(),qty:recipeAmount(el.querySelector('.ingredient-qty').value),amountText:el.querySelector('.ingredient-qty').value.trim(),unit:el.querySelector('.ingredient-unit').value.trim()||'each',selectedId:el.dataset.supplyId||'',costLibraryId:el.dataset.costLibraryId||'',recipeCostPrice:el.querySelector('.recipe-cost-price').value.trim(),recipeCostSizeText:el.querySelector('.recipe-cost-size').value.trim(),recipeCostUnit:el.querySelector('.recipe-cost-unit').value.trim()}));if(parts.some(p=>!p.name||!Number.isFinite(p.qty)||p.qty<=0)){alert('Every ingredient needs a name and a positive amount. You can enter 1/3, 1 1/2, or 0.5.');return}if(parts.some(p=>{const has=!!(p.recipeCostPrice||p.recipeCostSizeText||p.recipeCostUnit);if(!has)return false;const price=Number(p.recipeCostPrice),size=recipeAmount(p.recipeCostSizeText);return !(p.recipeCostPrice&&p.recipeCostSizeText&&p.recipeCostUnit&&Number.isFinite(price)&&price>0&&Number.isFinite(size)&&size>0&&convertedAmount(1,p.unit,p.recipeCostUnit)!==null)})){alert('For recipe-only pricing, enter a positive purchase price, purchased amount and compatible unit. For example: $5.99 for 16 oz.');return}parts=parts.map(p=>{const selected=d.items.find(i=>i.id===p.selectedId&&normal(i.name)===normal(p.name)&&bulkConvertToStock(1,p.unit,i)!==null);const id=selected?.id||matchSupply(p)?.id||'';const {selectedId,...rest}=p;return {...rest,recipeCostSize:p.recipeCostSizeText?recipeAmount(p.recipeCostSizeText):undefined,id}});let r={id:x||id(),name:f.elements.name.value.trim(),parts};let old=d.recipes.find(v=>v.id===x);if(old)Object.assign(old,r);else d.recipes.push(r);done()};
+saveFlavor=function(e,x){e.preventDefault();let f=e.target,parts=[...document.querySelectorAll('.ingredient')].map(el=>({name:el.querySelector('.ingredient-name').value.trim(),qty:recipeAmount(el.querySelector('.ingredient-qty').value),amountText:el.querySelector('.ingredient-qty').value.trim(),unit:el.querySelector('.ingredient-unit').value.trim()||'each',selectedId:el.dataset.supplyId||'',recipeCostPrice:el.querySelector('.recipe-cost-price').value.trim(),recipeCostSizeText:el.querySelector('.recipe-cost-size').value.trim(),recipeCostUnit:el.querySelector('.recipe-cost-unit').value.trim()}));if(parts.some(p=>!p.name||!Number.isFinite(p.qty)||p.qty<=0)){alert('Every ingredient needs a name and a positive amount. You can enter 1/3, 1 1/2, or 0.5.');return}if(parts.some(p=>{const has=!!(p.recipeCostPrice||p.recipeCostSizeText||p.recipeCostUnit);if(!has)return false;const price=Number(p.recipeCostPrice),size=recipeAmount(p.recipeCostSizeText);return !(p.recipeCostPrice&&p.recipeCostSizeText&&p.recipeCostUnit&&Number.isFinite(price)&&price>0&&Number.isFinite(size)&&size>0&&convertedAmount(1,p.unit,p.recipeCostUnit)!==null)})){alert('For recipe-only pricing, enter a positive purchase price, purchased amount and compatible unit. For example: $5.99 for 16 oz.');return}parts=parts.map(p=>{const selected=d.items.find(i=>i.id===p.selectedId&&normal(i.name)===normal(p.name)&&bulkConvertToStock(1,p.unit,i)!==null);const id=selected?.id||matchSupply(p)?.id||'';const {selectedId,...rest}=p;return {...rest,recipeCostSize:p.recipeCostSizeText?recipeAmount(p.recipeCostSizeText):undefined,id}});let r={id:x||id(),name:f.elements.name.value.trim(),parts};let old=d.recipes.find(v=>v.id===x);if(old)Object.assign(old,r);else d.recipes.push(r);done()};
 let selectedPhoto='';
 async function recipePhotoChosen(el){let file=el.files?.[0];if(!file)return;let status=$('photoStatus');status.textContent='Reading photo… this can take a minute and requires internet.';let url=URL.createObjectURL(file);$('photoPreview').innerHTML=`<img src="${url}" alt="Selected recipe" style="max-width:100%;max-height:190px;object-fit:contain">`;
  try{
@@ -649,30 +612,7 @@ exportEvents=function(){
 };
 
 
-d.costLibrary ||= [];d.customerQuotes ||= [];
-function libraryRows(){return d.items.filter(i=>!isShapeStockItem(i)).map(i=>({id:'stock:'+i.id,name:i.name,category:catName(i),price:Number(i.packageCost)||0,size:Number(i.packageSize)||1,unit:i.packageUnit||i.unit||'each',stockId:i.id})).concat(d.costLibrary)}
-function openLibraryItem(x=''){
- if(x.startsWith('stock:')){editItem(x.slice(6));return}
- const v=d.costLibrary.find(i=>i.id===x)||{};
- modal(x?'Edit cost-only item':'New cost-only item','<form onsubmit="saveLibraryItem(event,\''+x+'\')"><p class="notice">Pricing only. This does not create or deduct inventory.</p><label>Name</label><input required name="name" value="'+esc(v.name||'')+'"><label>Category</label><input name="category" value="'+esc(v.category||'Ingredients')+'"><div class="formgrid"><div><label>Purchase price ($)</label><input required type="number" step="0.01" min="0.01" name="price" value="'+esc(v.price??'')+'"></div><div><label>Amount purchased</label><input required name="size" placeholder="16 or 1/2" value="'+esc(v.sizeText||v.size||'')+'"></div></div><label>Purchase unit</label><input required name="unit" placeholder="oz, cup, fl oz, gallon, each" value="'+esc(v.unit||'')+'"><button>Save cost</button>'+(x?'<button type="button" class="danger" onclick="removeLibraryItem(\''+x+'\')">Delete</button>':'')+'</form>');
-}
-function saveLibraryItem(e,x){e.preventDefault();const f=e.target,size=recipeAmount(f.elements.size.value),price=Number(f.elements.price.value);if(!(size>0&&price>0)){alert('Enter a positive price and amount.');return}const v={id:x||id(),name:f.elements.name.value.trim(),category:f.elements.category.value.trim()||'Other',price,size,sizeText:f.elements.size.value.trim(),unit:f.elements.unit.value.trim()};const old=d.costLibrary.find(i=>i.id===x);if(old)Object.assign(old,v);else d.costLibrary.push(v);done()}
-function removeLibraryItem(x){if(!confirm('Delete this cost-only price?'))return;d.costLibrary=d.costLibrary.filter(i=>i.id!==x);done()}
-function libraryIngredientCost(p){
- const options=libraryRows().filter(i=>p.id&&i.stockId===p.id||normal(i.name)===normal(p.name));
- const price=options.find(i=>i.price>0&&i.size>0&&convertedAmount(1,p.unit,i.unit)!==null);
- if(price){const q=convertedAmount(Number(p.qty)||0,p.unit,price.unit);return {cost:q*price.price/price.size,unknown:false}}
- const amount=convertedAmount(Number(p.qty)||0,p.unit,p.recipeCostUnit||'');
- if(amount!==null&&Number(p.recipeCostPrice)>0&&Number(p.recipeCostSize)>0)return {cost:amount*Number(p.recipeCostPrice)/Number(p.recipeCostSize),unknown:false};
- return {cost:0,unknown:true};
-}
-costPart=libraryIngredientCost;
-function libraryDisplay(){
- const target=$('costList');if(!target)return;
- const query=normal($('costSearch')?.value);
- const rows=libraryRows().filter(v=>normal(v.name+' '+v.category).includes(query)).sort((a,b)=>a.name.localeCompare(b.name));
- target.innerHTML=rows.map(v=>'<div class="item row"><div><strong>'+esc(v.name)+'</strong><div class="small muted">'+esc(v.category)+' · '+(v.stockId?'My Stock':'Cost only')+' · '+(v.price>0?money(v.price)+' / '+fmt(v.size)+' '+esc(v.unit):'Missing price')+'</div></div><button type="button" class="alt" onclick="openLibraryItem(\''+v.id+'\')">Edit</button></div>').join('')||'<p class="muted small">No matching prices.</p>';
-}
+d.customerQuotes ||= [];
 function newCustomerQuote(x=''){
  const q=d.customerQuotes.find(v=>v.id===x)||{},s=d.quoteSettings||{hours:2,rate:20,other:0,margin:40};
  modal('Customer estimate','<form onsubmit="saveCustomerEstimate(event,\''+x+'\')"><p class="notice">Saved quotes are separate from orders and do not change stock.</p><label>Customer name</label><input name="customer" value="'+esc(q.customer||'')+'"><label>Flavor</label><select id="quoteFlavor" name="flavor" onchange="quotePreview()">'+alpha(d.recipes).map(v=>'<option value="'+v.id+'" '+((q.flavor||d.recipes[0]?.id)===v.id?'selected':'')+'>'+esc(v.name)+'</option>').join('')+'</select><label>Shape</label><select id="quoteShape" name="shape" onchange="quotePreview()">'+alpha(d.shapes).map(v=>'<option value="'+v.id+'" '+((q.shape||d.shapes[0]?.id)===v.id?'selected':'')+'>'+esc(v.name)+' ('+v.yield+' pops/batch)</option>').join('')+'</select><div class="formgrid">'+
@@ -705,14 +645,7 @@ function saveCustomerEstimate(e,x){
 }
 function deleteCustomerEstimate(x){if(!confirm('Delete this quote draft?'))return;d.customerQuotes=d.customerQuotes.filter(i=>i.id!==x);done()}
 const quoteBeforeBusiness=renderBusiness;
-renderBusiness=function(){
- quoteBeforeBusiness();const root=$('business');if(!root)return;
- const block=document.createElement('div');block.className='card';
- block.innerHTML='<h3>Cost Library</h3><p class="muted small">Reuse prices across flavors. My Stock supplies appear automatically; add cost-only ingredients without adding inventory.</p><div class="actions"><button type="button" onclick="openLibraryItem()">+ Cost-only item</button><button type="button" class="alt" onclick="newCustomerQuote()">Instant quote</button></div><input id="costSearch" placeholder="Search saved costs..." oninput="libraryDisplay()"><div id="costList"></div>';
- root.insertBefore(block,root.firstChild);libraryDisplay();
- const quotes=document.createElement('div');quotes.className='card';quotes.innerHTML='<h3>Customer quote drafts</h3><button onclick="newCustomerQuote()">+ New estimate</button>'+(alpha(d.customerQuotes,'customer').map(v=>'<div class="item row"><div><strong>'+esc(v.customer||'Untitled')+'</strong><div class="muted small">'+esc(flavorName(v.flavor))+' · '+v.count+' pops · Your total '+money(v.count*v.price)+' · Suggested '+money(v.count*v.suggested)+(v.missing?.length?' · Incomplete':'')+'</div></div><button type="button" class="alt" onclick="newCustomerQuote(\''+v.id+'\')">Edit</button></div>').join('')||'<p class="muted small">No quote drafts saved yet.</p>');
- block.insertAdjacentElement('afterend',quotes);
-};
+renderBusiness=function(){quoteBeforeBusiness();const root=$('business');if(!root)return;const card=document.createElement('div');card.className='card';card.innerHTML='<h3>Customer quote drafts</h3><button onclick="newCustomerQuote()">+ New estimate</button>'+(alpha(d.customerQuotes,'customer').map(v=>'<div class="item row"><div><strong>'+esc(v.customer||'Untitled')+'</strong><div class="muted small">'+esc(flavorName(v.flavor))+' · '+v.count+' pops · Your total '+money(v.count*v.price)+' · Suggested '+money(v.count*v.suggested)+(v.missing?.length?' · Incomplete':'')+'</div></div><button type="button" class="alt" onclick="newCustomerQuote(\''+v.id+'\')">Edit</button></div>').join('')||'<p class="muted small">No quote drafts yet.</p>');root.insertBefore(card,root.firstChild)};
 const quoteBeforeFlavors=renderFlavors;
 renderFlavors=function(){quoteBeforeFlavors();$('flavors')?.insertAdjacentHTML('afterbegin','<div class="actions"><button type="button" class="alt" onclick="go(\'business\');newCustomerQuote()">Instant quote</button></div>')};
 
@@ -755,7 +688,7 @@ restore=async function(el){try{
 function p1Cost(p){
  const stock=p.id?d.items.filter(i=>i.id===p.id):d.items.filter(i=>normal(i.name)===normal(p.name));
  const candidates=stock.filter(i=>!isShapeStockItem(i)).map(i=>({price:Number(i.packageCost),size:Number(i.packageSize),unit:i.packageUnit||i.unit,source:'My Stock'}))
-  .concat(d.costLibrary.filter(i=>(p.costLibraryId&&i.id===p.costLibraryId)||normal(i.name)===normal(p.name)).map(i=>({price:Number(i.price),size:Number(i.size),unit:i.unit,source:'Cost Library'})))
+  
   .concat([{price:Number(p.recipeCostPrice),size:Number(p.recipeCostSize),unit:p.recipeCostUnit,source:'Recipe-only'}]);
  for(const c of candidates){if(!(c.price>0&&c.size>0))continue;const amount=convertedAmount(Number(p.qty)||0,p.unit,c.unit);if(amount!==null)return {cost:amount*c.price/c.size,unknown:false,source:c.source}}
  return {cost:0,unknown:true,reason:'No saved price or compatible package measurement'};
@@ -857,11 +790,17 @@ const p1BeforeStart=progress;
 progress=function(kind,x){const p=d[kind]?.find(v=>v.id===x);if(!p||p.status!=='Planned')return;const errors=p1MissingPackaging(p.lines);if(errors.length){alert('Packaging needs setup before production:\n'+errors.join('\n')+'\nNo stock deducted. Edit the popper shape under Settings.');return}p1BeforeStart(kind,x)};
 const p1BeforeFinish=popSaveActual;
 popSaveActual=function(e,x){const p=d.orders.find(v=>v.id===x);if(!p||p.status!=='In progress')return;const errors=p1MissingPackaging(p.lines);if(errors.length){e.preventDefault();alert('Packaging not configured:\n'+errors.join('\n')+'\nEdit the shape under Settings.');return}p1BeforeFinish(e,x)};
-const p1BeforeFlavorList=renderFlavors;
-renderFlavors=function(){p1BeforeFlavorList();const root=$('flavors');if(!root)return;const items=alpha(d.costLibrary).filter(i=>!i.stockId);const panel=document.createElement('div');panel.className='card';panel.innerHTML='<h3>Cost Library — pricing only</h3><p class="muted small">These items do not appear in My Stock because they have no inventory quantity. Their prices can still be used by flavor recipes and customer quotes.</p><div class="actions"><button type="button" onclick="openLibraryItem()">+ Cost-only ingredient</button><button type="button" class="alt" onclick="go(\'business\')">Full Cost Library</button></div>'+(items.length?items.map(i=>'<div class="item row"><div><strong>'+esc(i.name)+'</strong><div class="muted small">'+money(i.price)+' for '+fmt(Number(i.size)||0)+' '+esc(i.unit||'')+'</div></div><button type="button" class="alt" onclick="openLibraryItem(\''+i.id+'\')">Edit</button></div>').join(''):'<p class="muted small">No cost-only ingredients saved yet.</p>');root.insertBefore(panel,root.querySelector('.notice')||root.firstChild)};
 const p1BeforeShapeEdit=editShape;
 editShape=function(x=''){p1BeforeShapeEdit(x);const form=$('dialogBody')?.querySelector('form');if(!form)return;const heading=[...form.querySelectorAll('h3')].find(v=>v.textContent.includes('Packaging per pop'));heading?.insertAdjacentHTML('afterend','<p class="notice">Choose the actual stick, bag and sticker from My Stock. Select None for supplies not used with this shape. Leaving a field unselected will block production to prevent silent missed deductions.</p>')};
-const p1BeforeBusinessList=renderBusiness;
-renderBusiness=function(){p1BeforeBusinessList();const field=$('costSearch');field?.insertAdjacentHTML('beforebegin','<p class="muted small">Cost-only entries appear here and under Flavors, but are intentionally excluded from My Stock.</p>')};
-
+// Preserve costs already used by recipes before retiring the old price list.
+if(Array.isArray(d.costLibrary)&&d.costLibrary.length){
+ for(const r of d.recipes||[])for(const p of r.parts||[]){
+  if(!(Number(p.recipeCostPrice)>0&&Number(p.recipeCostSize)>0)){
+   const old=d.costLibrary.find(i=>(p.costLibraryId&&i.id===p.costLibraryId)||(normal(i.name)===normal(p.name)&&convertedAmount(1,p.unit,i.unit)!==null));
+   if(old&&Number(old.price)>0&&Number(old.size)>0&&convertedAmount(1,p.unit,old.unit)!==null){p.recipeCostPrice=old.price;p.recipeCostSize=old.size;p.recipeCostSizeText=old.sizeText||String(old.size);p.recipeCostUnit=old.unit}
+  }
+  delete p.costLibraryId;
+ }
+ d.retiredCostPrices=[...(d.retiredCostPrices||[]),...d.costLibrary];delete d.costLibrary;
+}
 save();render();if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
