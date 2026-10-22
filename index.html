@@ -1155,8 +1155,8 @@ renderShopping=function(){
 
 /* Phase 2: streamlined primary navigation with accessible More menu. */
 let popMoreOpen=false;
-const popPrimaryTabs=[['home','Home'],['stock','Stock'],['orders','Orders'],['events','Events']];
-const popExtraTabs=[['flavors','Flavors'],['freezer','Freezer'],['shopping','Shopping'],['business','Business & Reports'],['settings','Settings']];
+const popPrimaryTabs=[['home','Home'],['stock','Stock'],['flavors','Flavors'],['orders','Orders'],['events','Events']];
+const popExtraTabs=[['freezer','Freezer'],['shopping','Shopping'],['business','Business & Reports'],['settings','Settings']];
 function popToggleMore(){popMoreOpen=!popMoreOpen;popPaintNavigation();if(popMoreOpen)$('popMoreButton')?.focus()}
 function popPaintNavigation(){
  const nav=$('nav');if(!nav)return;
@@ -2419,6 +2419,19 @@ renderStock=function(){
  (members.map(sh=>'<div class="item"><div class="row"><div><strong>'+esc(sh.name)+'</strong><div class="small muted">'+(sh.yield>0?sh.yield+' pops per cake mix':'Set yield for calculations')+'</div></div><button class="alt" onclick="editShape(\''+sh.id+'\')">Edit</button></div></div>').join('')||'<p class="muted small">No shapes in this category yet.</p>')+'</details>';
  }).join('');
  list.outerHTML='<div id="psShapeGroups">'+html+'</div>';
+};
+
+
+/* Quick Flavors access on Home alongside the top navigation. */
+const psFlavorsHomeBefore=renderHome;
+renderHome=function(){
+ psFlavorsHomeBefore();
+ const actions=$('home')?.querySelector('.home-actions');
+ if(!actions||actions.querySelector('[data-home-flavors]'))return;
+ const button=document.createElement('button');
+ button.type='button';button.dataset.homeFlavors='true';button.textContent='Flavors & Recipes';
+ button.addEventListener('click',()=>go('flavors'));
+ actions.appendChild(button);
 };
 
 save();render();psWelcomeFirstLaunch();if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
