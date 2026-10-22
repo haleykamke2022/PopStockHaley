@@ -2161,4 +2161,19 @@ function renderFeedback(){
 const psFeedbackBeforeRender=render;
 render=function(){psFeedbackBeforeRender();renderFeedback();document.querySelectorAll('main section').forEach(section=>section.classList.toggle('show',section.id===tab))};
 
+
+/* Phase 4 feedback consolidation: submit through the existing Google Form. */
+function renderFeedback(){
+ const root=$('feedback');if(!root)return;
+ const saved=Array.isArray(d.betaFeedback)?d.betaFeedback:[];
+ root.innerHTML='<div class="row wrap"><h2>Beta Feedback</h2></div>'+
+ '<div class="card"><h3>Help & Suggestions</h3>'+
+ '<p>Report a bug, request a feature, or suggest an improvement using the PopStock feedback form.</p>'+
+ '<p class="muted small">The form opens in your browser and requires internet access. Your report is delivered to the Google Form when you press Submit there; it is not sent just by opening the form.</p>'+
+ '<a id="psFeedbackFormLink" href="'+esc(POPSTOCK_FEEDBACK_URL)+'" target="_blank" rel="noopener noreferrer" style="display:inline-block;background:var(--brand,#b56b91);color:white;border-radius:11px;padding:12px 15px;font:600 14px system-ui;text-decoration:none">Open Feedback Form</a></div>'+
+ (saved.length?'<div class="card"><h3>Previously saved feedback</h3><p class="muted small">These earlier local reports have not been submitted to the Google Form. Export them for your records, or submit them using the form above.</p><button class="alt" type="button" id="psFeedbackDownload">Export earlier feedback</button>'+
+ saved.slice().reverse().map(v=>'<div class="item"><strong>'+esc(v.kind||'Feedback')+' · '+esc(v.area||'Other')+'</strong><p>'+esc(v.description||'')+'</p></div>').join('')+'</div>':'');
+ root.querySelector('#psFeedbackDownload')?.addEventListener('click',psFeedbackExport);
+}
+
 save();render();psWelcomeFirstLaunch();if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
