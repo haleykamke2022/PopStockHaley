@@ -1126,7 +1126,9 @@ const popExtraTabs=[['flavors','Flavors'],['freezer','Freezer'],['shopping','Sho
 function popToggleMore(){popMoreOpen=!popMoreOpen;popPaintNavigation();if(popMoreOpen)$('popMoreButton')?.focus()}
 function popPaintNavigation(){
  const nav=$('nav');if(!nav)return;
- const extra=popExtraTabs.filter(([id])=>id!=='business'||d.settings?.showBusinessTab!==false).sort((a,b)=>a[0]==='guide'?-1:b[0]==='guide'?1:a[0]==='settings'?1:b[0]==='settings'?-1:a[1].localeCompare(b[1]));
+ const guideFinished=!!d.settings?.setupGuideCompleted||(typeof setupSteps==='function'&&setupSteps().every(step=>step.done));
+ if(guideFinished&&!d.settings.setupGuideCompleted){d.settings.setupGuideCompleted=true;save()}
+ const extra=popExtraTabs.filter(([id])=>(id!=='business'||d.settings?.showBusinessTab!==false)&&(id!=='guide'||!guideFinished)).sort((a,b)=>a[0]==='guide'?-1:b[0]==='guide'?1:a[0]==='settings'?1:b[0]==='settings'?-1:a[1].localeCompare(b[1]));
  const moreSelected=extra.some(([id])=>id===tab);
  nav.setAttribute('aria-label','Main navigation');
  nav.innerHTML=popPrimaryTabs.map(([id,name])=>'<button type="button" class="'+(tab===id?'sel':'')+'" '+(tab===id?'aria-current="page" ':'')+'onclick="popMoreOpen=false;go(\''+id+'\')">'+name+'</button>').join('')+
