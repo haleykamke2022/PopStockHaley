@@ -1860,4 +1860,94 @@ eventReport=function(x){
  if(sales){sales.previousElementSibling?.insertAdjacentText('beforeend',' (event-only total)')}
 };
 
+
+/* Phase 3 Step 3: Customer History. Derived from saved orders and quotes, without migrations. */
+popExtraTabs.splice(popExtraTabs.findIndex(([key])=>key==='quotes')+1,0,['customers','Customers']);
+$('quotes').insertAdjacentHTML('afterend','<section id="customers"></section>');
+let psCustomerQuery='',psSelectedCustomer='';
+function psCustomerKey(name){return String(name||'').trim().replace(/\s+/g,' ').toLocaleLowerCase()}
+function psCustomerName(o){return String(o.customerName||o.customer||o.name||'').trim()}
+function psCustomerGroups(){
+ const map=new Map();
+ const add=(name,type,entry)=>{
+  const key=psCustomerKey(name);if(!key)return;
+  if(!map.has(key))map.set(key,{key,name:String(name).trim(),orders:[],quotes:[]});
+  map.get(key)[type].push(entry);
+ };
+ for(const o of d.orders||[])add(psCustomerName(o),'orders',o);
+ for(const q of d.customerQuotes||[])add(q.customer,'quotes',q);
+ return [...map.values()].sort((a,b)=>a.name.localeCompare(b.name));
+}
+function psCustomerValue(order){
+ for(const key of ['actualTotal','totalPaid','paidTotal','finalTotal','quotedTotal','totalPrice']){
+  if(order[key]!==undefined&&order[key]!==null&&order[key]!==''&&Number.isFinite(Number(order[key]))&&Number(order[key])>=0)return Number(order[key]);
+ }
+ if(order.sourceQuoteId){
+  const q=(d.customerQuotes||[]).find(v=>v.id===order.sourceQuoteId);
+  if(q&&Number.isFinite(Number(q.count))*Number(q.price))return Number(q.count)*Number(q.price);
+ }
+ return null;
+}
+function psCustomerStats(c){
+ const completed=c.orders.filter(o=>o.status==='Completed');
+ const valued=completed.map(psCustomerValue);
+ const spend=valued.reduce((n,v)=>n+(v??0),0);
+ const flavorCounts=new Map();
+ for(const o of c.orders)for(const line of o.lines||[]){
+  const key=line.flavor;if(!key)continue;flavorCounts.set(key,(flavorCounts.get(key)||0)+(Number(line.count)||0));
+ }
+ const top=[...flavorCounts].sort((a,b)=>b[1]-a[1])[0];
+ return {completed:completed.length,spend,unknown:valued.filter(v=>v===null).length,top:top?flavorName(top[0]):'Not recorded'};
+}
+function psCustomerOpen(key){psSelectedCustomer=key;render()}
+function psCustomerReorder(orderId){
+ const old=(d.orders||[]).find(o=>o.id===orderId);if(!old)return;
+ if(!(old.lines||[]).length){alert('This order has no flavor lines to reorder.');return}
+ const label=psCustomerName(old);
+ if(!confirm('Create a new Planned order for '+label+' using the previous flavors, shapes and quantities? No stock will be deducted.'))return;
+ const copy={...old,id:id(),status:'Planned',date:'',due:'',deducted:false,used:{},usedFreezer:[],allocations:[],productionSteps:[],sourceQuoteId:undefined,convertedAt:undefined,report:undefined,actualCounts:undefined,packagedCounts:undefined,packagingUsed:undefined,extraIngredientsUsed:undefined,orderNotes:old.orderNotes||'',lines:(old.lines||[]).map(v=>({...v}))};
+ delete copy.used;delete copy.usedFreezer;delete copy.packagingUsed;delete copy.extraIngredientsUsed;
+ delete copy.actualCounts;delete copy.packagedCounts;delete copy.report;
+ delete copy.completedAt;delete copy.completedDate;delete copy.production;delete copy.productionChecklist;
+ delete copy.quotedTotal;delete copy.actualTotal;delete copy.totalPaid;delete copy.paidTotal;delete copy.finalTotal;delete copy.totalPrice;
+ delete copy.sourceQuoteId;delete copy.convertedAt;
+ d.orders.push(copy);save();go('orders');alert('New Planned order created. Add a due date and review details before starting production.');
+}
+function renderCustomers(){
+ const root=$('customers');if(!root)return;
+ const groups=psCustomerGroups(),chosen=groups.find(v=>v.key===psSelectedCustomer);
+ if(chosen){
+  const stats=psCustomerStats(chosen);
+  root.innerHTML='<div class="row"><button class="alt" id="psCustBack">Back to customers</button></div>'+
+   '<h2>'+esc(chosen.name)+'</h2>'+
+   '<div class="card"><strong>'+stats.completed+' completed orders</strong><p>Recorded completed-order value: '+money(stats.spend)+
+   (stats.unknown?' <span class="muted small">('+stats.unknown+' completed order(s) lack a recorded total; spending is incomplete)</span>':'')+
+   '</p><p class="muted small">Most ordered flavor by planned quantity: '+esc(stats.top)+'</p></div>'+
+   '<h3>Order history</h3>'+
+   (chosen.orders.slice().sort((a,b)=>String(b.date||b.due||'').localeCompare(String(a.date||a.due||''))).map(o=>
+    '<div class="card"><strong>'+esc(o.date||o.due||'No date')+' · '+esc(o.status||'Planned')+'</strong>'+
+    '<p class="small">'+(o.lines||[]).map(l=>esc(flavorName(l.flavor))+' ('+(Number(l.count)||0)+')').join(' · ')+'</p>'+
+    '<p class="muted small">Recorded total: '+(psCustomerValue(o)===null?'Not recorded':money(psCustomerValue(o)))+'</p>'+
+    '<button class="alt" type="button" data-reorder="'+esc(o.id)+'">Create repeat order</button></div>').join('')||'<p class="muted">No orders yet.</p>')+
+   '<h3>Estimate history</h3>'+
+   (chosen.quotes.map(q=>'<div class="card"><strong>'+esc(flavorName(q.flavor))+'</strong><p class="muted small">'+
+     (q.count||0)+' pops · '+(Number.isFinite(Number(q.price))?money((Number(q.count)||0)*Number(q.price)):'Price not recorded')+
+     (q.convertedOrderId||quoteOrderFor(q.id)?' · Converted':' · Draft')+'</p></div>').join('')||'<p class="muted">No estimates yet.</p>');
+  root.querySelector('#psCustBack').addEventListener('click',()=>{psSelectedCustomer='';render()});
+  root.querySelectorAll('[data-reorder]').forEach(btn=>btn.addEventListener('click',()=>psCustomerReorder(btn.dataset.reorder)));
+  return;
+ }
+ const filtered=groups.filter(c=>c.name.toLocaleLowerCase().includes(psCustomerQuery.toLocaleLowerCase()));
+ root.innerHTML='<h2>Customers</h2><p class="muted small">Customer history is automatically organized from saved orders and estimates. Matching names are grouped; no existing records are changed.</p>'+
+ '<label for="psCustSearch">Search customers</label><input id="psCustSearch" type="search" value="'+esc(psCustomerQuery)+'" placeholder="Search by name">'+
+ '<p class="muted small">'+filtered.length+' customer(s)</p>'+
+ (filtered.map(c=>{const stats=psCustomerStats(c);return '<div class="card"><div class="row"><div><strong>'+esc(c.name)+'</strong>'+
+ '<p class="muted small">'+c.orders.length+' order(s) · '+c.quotes.length+' estimate(s) · '+stats.completed+' completed</p></div>'+
+ '<button class="alt" data-customer="'+esc(c.key)+'" type="button">View history</button></div></div>'}).join('')||'<p class="muted">No matching customers. Add an order or estimate to build your history.</p>');
+ root.querySelector('#psCustSearch').addEventListener('input',e=>{psCustomerQuery=e.target.value;renderCustomers();const input=$('psCustSearch');input.focus();input.setSelectionRange(input.value.length,input.value.length)});
+ root.querySelectorAll('[data-customer]').forEach(btn=>btn.addEventListener('click',()=>psCustomerOpen(btn.dataset.customer)));
+}
+const psCustomersRender=render;
+render=function(){psCustomersRender();renderCustomers();document.querySelectorAll('main section').forEach(section=>section.classList.toggle('show',section.id===tab))};
+
 save();render();if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
