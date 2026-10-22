@@ -2308,6 +2308,10 @@ renderSettings=function(){
   }
   groups[key].appendChild(el);
  }
+ const businessCards=[...groups.business.children];
+ const businessTabCard=businessCards.find(el=>el.querySelector('h3')?.textContent.trim()==='Optional Business tab');
+ const businessExpensesCard=businessCards.find(el=>el.querySelector('h3')?.textContent.trim()==='Optional business expenses');
+ if(businessTabCard&&businessExpensesCard)groups.business.insertBefore(businessTabCard,businessExpensesCard);
  const tabs=document.createElement('div');tabs.className='ps-settings-tabs';tabs.setAttribute('role','group');tabs.setAttribute('aria-label','Settings sections');
  for(const info of sections){
   const button=document.createElement('button');button.type='button';button.textContent=info.label;
