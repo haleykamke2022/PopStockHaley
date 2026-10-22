@@ -1812,4 +1812,21 @@ psProfitView=function(x){
  '<div class="actions"><button class="alt" onclick="psProfitEdit(\''+x+'\')">Edit cost details</button><button type="button" class="alt" onclick="$(\'dialog\').close()">Close</button></div>');
 };
 
+
+const psSharedQuoteEditor=newCustomerQuote;
+newCustomerQuote=function(x=''){
+ psSharedQuoteEditor(x);
+ if(!x&&$('quoteRate')){$('quoteRate').value=psSharedRate('order');quotePreview()}
+};
+psProfitExport=function(){
+ const year=Number($('reportYear')?.value)||new Date().getFullYear();
+ const rows=[['Event','Date','Sales','Event fees and expenses','Ingredients from stock','Packaging from stock','POS fees','Labor','Other','Costs complete','Event contribution']];
+ for(const p of d.events||[]){
+  if(!p.report||!String(p.date||'').startsWith(String(year)))continue;
+  const m=psProfitModel(p);
+  rows.push([p.name,p.date,m.sales,m.evt,m.ingredients??'',m.packaging??'',m.processing??'',m.labor??'',m.other??'',m.valid?'Yes':'No',m.valid?m.profit:'']);
+ }
+ exportCsv('popstock-event-profit-'+year+'.csv',rows);
+};
+
 save();render();if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
