@@ -54,6 +54,13 @@ dialog form{min-width:0}
  #nav>button,#nav>.pop-more-wrap>button{min-height:48px;font-size:12px}
 }
 
+
+
+.ps-settings-tabs{display:flex;gap:7px;overflow-x:auto;padding:7px 0 13px;scrollbar-width:thin}
+.ps-settings-tabs button{flex:0 0 auto;background:#e4ece3;color:#35543a;min-height:44px}
+.ps-settings-tabs button.sel{background:var(--brand,#b56b91);color:white}
+.ps-settings-panel[hidden],.ps-category-list[hidden]{display:none!important}
+.ps-category-list{margin-top:10px}
 </style></head><body><header><img id="brandImage" src="./icons/icon-192.png" alt="App logo"><div><h1>Cake Pop Inventory</h1><small></small></div></header><nav id="nav"></nav><main><section id="home"></section><section id="guide"></section><section id="quotes"></section><section id="production"></section><section id="stock"></section><section id="flavors"></section><section id="orders"></section><section id="events"></section><section id="freezer"></section><section id="shopping"></section><section id="settings"></section><footer>Personal-use app • Saved on this device • Export backups often</footer></main><dialog id="dialog"><div class="row"><h2 id="dialogTitle"></h2><button class="alt" onclick="document.getElementById('dialog').close()">✕</button></div><div id="dialogBody"></div></dialog><script>
 const KEY='cakepop_simple_v1',NEW='cakepop_custom_v2';const defaults=['Emulsions','Inclusions','Sprinkles','Almond bark','Cake mixes','Shapes','Packaging'];const icons=['','','','','','',''];const oldNames={'Popper shapes':'Shapes','Popsicle sticks':'Packaging','Wraps':'Packaging','Stickers':'Packaging','Boxes':'Packaging','Decorations':'Packaging','Other':'Packaging'};const seed=()=>({items:[],recipes:[],orders:[],events:[],categories:defaults.map((name,j)=>({id:'c'+j,name,emoji:icons[j]})),logo:'',log:[]});let d;try{d=JSON.parse(localStorage.getItem(NEW))}catch{}if(!d){let old;try{old=JSON.parse(localStorage.getItem(KEY))}catch{}d=seed();if(old&&Array.isArray(old.items)){d.items=olalpha(d.items).map(i=>({...i,type:oldNames[i.type]||i.type,restock:i.restock??Math.max(1,i.min||1)}));d.recipes=old.recipes||[];d.orders=(old.orders||[]).map(o=>({...o,lines:o.lines||[],status:o.status||'Planned',deducted:o.deducted||false}));d.log=old.log||[]}}d.categories ||=seed().categories;d.events ||= [];d.orders ||= [];d.recipes ||= [];d.items ||= [];d.log ||= [];d.logo ||= '';d.freezer ||= [];d.shapes ||= [];d.freezerEnabled ??= true;const $=id=>document.getElementById(id),esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])),id=()=>Math.random().toString(36).slice(2)+Date.now().toString(36),catName=i=>d.categories.find(c=>c.id===i.type)?.name||i.type||'Uncategorized',catOf=i=>d.categories.find(c=>c.id===i.type)||d.categories.find(c=>c.name===i.type),itemName=x=>d.items.find(i=>i.id===x)?.name||'Deleted supply',flavorName=x=>d.recipes.find(r=>r.id===x)?.name||'Deleted flavor';let tab='stock',selected=null;function save(){try{localStorage.setItem(NEW,JSON.stringify(d))}catch(e){alert('Phone storage is full. Export a backup; consider using a smaller logo.')}}function modal(title,body){$('dialogTitle').textContent=title;$('dialogBody').innerHTML=body;$('dialog').showModal()}function done(){save();$('dialog').close();render()}function go(t){tab=t;selected=null;render()}function render(){$('nav').innerHTML=[['stock','Stock'],['flavors','Flavors'],['orders','Orders'],['events','Events'],['freezer','Freezer'],['shopping','Shopping'],['settings','Settings']].map(([t,l])=>`<button class="${tab===t?'sel':''}" onclick="go('${t}')">${l}</button>`).join('');document.querySelectorAll('section').forEach(s=>s.classList.toggle('show',s.id===tab));$('brandImage').src=d.logo||'./icons/icon-192.png';renderStock();renderFlavors();renderPlans('orders');renderPlans('events');renderFreezer();renderShopping();renderSettings()}
 function renderStock(){let cats=alpha(d.categories);let html=selected?`<div class="row"><button class="alt" onclick="selected=null;render()">← Categories</button><button onclick="editItem('', '${selected}')">+ Supply</button></div><h2>${esc(cats.find(c=>c.id===selected)?.name||'Stock')}</h2>`:`<div class="row"><h2>My Stock</h2><button onclick="editItem()">+ Supply</button></div><p class="muted">Choose a category to view and update your supplies.</p><div class="grid">${cats.map(c=>`<button class="tile" onclick="selected='${c.id}';render()"><strong>${esc(c.name)}</strong><small>${d.items.filter(i=>catOf(i)?.id===c.id).length} supplies →</small></button>`).join('')}</div>`;if(selected){let list=alpha(d.items.filter(i=>catOf(i)?.id===selected));html+=`<div class="card">${list.length?list.map(i=>`<div class="item"><div class="row"><strong>${esc(i.name)}</strong><span class="pill">${Number(i.qty)} ${esc(i.unit||'packs')}</span></div><div class="small muted">Low at ${i.min||0} · Restock target ${i.restock??i.min??0} ${esc(i.unit||'packs')}</div><div class="actions"><button class="alt" onclick="adjust('${i.id}',1)">+ Add</button><button class="alt" onclick="adjust('${i.id}',-1)">− Use</button><button class="alt" onclick="editItem('${i.id}')">Edit</button></div></div>`).join(''):'<p class="muted">No supplies here yet.</p>'}</div>`} $('stock').innerHTML=html}
@@ -2248,5 +2255,78 @@ renderSettings=function(){
  root.append(card);
  card.querySelector('#psBackupCheckFile').addEventListener('change',e=>{psInspectBackupFile(e.target.files?.[0]);});
 };
+
+
+/* Settings organization: onboarding, business, stock, backups, and general. */
+let psSettingsActive='start';
+const psBeforeOrganizedSettings=renderSettings;
+renderSettings=function(){
+ psBeforeOrganizedSettings();
+ const root=$('settings');if(!root)return;
+ const sections=[
+  {key:'start',label:'Getting Started'},
+  {key:'business',label:'Business'},
+  {key:'stock',label:'Stock & Freezer'},
+  {key:'backup',label:'Backups & Data'},
+  {key:'general',label:'General & Help'}
+ ];
+ const headings={
+  'Getting Started Guide':'start','Getting Started':'start','Home screen reminder':'start',
+  'Business branding':'business','Optional Business tab':'business','Optional business expenses':'business',
+  'Hourly labor rates':'business','Sell-through assumptions':'business','Optional custom-order add-ons':'business',
+  'Stock categories':'stock','Freezer settings':'stock','Popper shapes and yields':'stock',
+  'Backups':'backup','Protect your data':'backup','Sync Readiness':'backup','Backup File Check':'backup',
+  'My logo':'general','Help & Feedback':'general'
+ };
+ const children=[...root.children];
+ const groups=Object.fromEntries(sections.map(x=>[x.key,document.createElement('div')]));
+ for(const el of children){
+  if(el.tagName==='H2'&&el.textContent.trim()==='Customize'){el.remove();continue}
+  const heading=el.querySelector('h3')?.textContent.trim();
+  const key=headings[heading]||'general';
+  if(heading==='Stock categories'){
+   const headingNode=el.querySelector('h3');
+   const row=headingNode?.closest('.row');
+   if(row){
+    const toggle=document.createElement('button');
+    toggle.type='button';toggle.className='alt';
+    const content=document.createElement('div');
+    content.className='ps-category-list';
+    const categoryRows=[...el.querySelectorAll('.category-sort-row')];
+    for(const item of categoryRows)content.appendChild(item);
+    const collapsed=sessionStorage.getItem('ps_stock_categories_collapsed')==='1';
+    content.hidden=collapsed;toggle.textContent=collapsed?'Expand categories':'Collapse categories';
+    toggle.setAttribute('aria-expanded',String(!collapsed));
+    toggle.addEventListener('click',()=>{
+     content.hidden=!content.hidden;
+     toggle.textContent=content.hidden?'Expand categories':'Collapse categories';
+     toggle.setAttribute('aria-expanded',String(!content.hidden));
+     try{sessionStorage.setItem('ps_stock_categories_collapsed',content.hidden?'1':'0')}catch{}
+    });
+    row.insertAdjacentElement('afterend',toggle);toggle.insertAdjacentElement('afterend',content);
+   }
+  }
+  groups[key].appendChild(el);
+ }
+ const tabs=document.createElement('div');tabs.className='ps-settings-tabs';tabs.setAttribute('role','group');tabs.setAttribute('aria-label','Settings sections');
+ for(const info of sections){
+  const button=document.createElement('button');button.type='button';button.textContent=info.label;
+  button.dataset.settingsTab=info.key;
+  button.addEventListener('click',()=>psShowSettingsTab(info.key));
+  tabs.appendChild(button);
+ }
+ root.appendChild(tabs);
+ for(const info of sections){
+  const panel=document.createElement('div');panel.dataset.settingsPanel=info.key;
+  panel.className='ps-settings-panel';panel.appendChild(groups[info.key]);root.appendChild(panel);
+ }
+ psShowSettingsTab(psSettingsActive);
+};
+function psShowSettingsTab(key){
+ const root=$('settings');if(!root)return;
+ psSettingsActive=key;
+ root.querySelectorAll('[data-settings-tab]').forEach(b=>{const yes=b.dataset.settingsTab===key;b.classList.toggle('sel',yes);b.setAttribute('aria-pressed',String(yes))});
+ root.querySelectorAll('[data-settings-panel]').forEach(p=>p.hidden=p.dataset.settingsPanel!==key);
+}
 
 save();render();psWelcomeFirstLaunch();if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
