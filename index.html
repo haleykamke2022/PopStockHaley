@@ -1150,7 +1150,7 @@ function shopChecklistAction(action,key){
  if(action==='restart'){d.shoppingChecklists[listKey]={bought:{},archived:false}}
  else if(action==='delete'){
   const rows=shopNeeds();
-  if(!rows.length||rows.some(r=>!current.bought[r.key]))return;
+  if((!rows.length&&!Object.keys(current.bought).length)||rows.some(r=>!current.bought[r.key]))return;
   if(!confirm('Delete this completed shopping checklist? Your stock, orders, events, and restock settings will stay unchanged.'))return;
   d.shoppingChecklists[listKey]={bought:{},archived:true};
  }else if(action==='bought'){current.bought[key]=true;current.archived=false;d.shoppingChecklists[listKey]=current}
@@ -1170,7 +1170,7 @@ renderShopping=function(){
   card.innerHTML='<div class="row"><h3>Items to buy</h3><span class="pill">'+bought.length+' of '+rows.length+' bought</span></div>'+
    (pending.length?pending.map(r=>'<div class="item"><div class="row"><div><strong>'+esc(r.name)+'</strong><div class="small muted">'+esc(r.need)+' · Have '+fmt(r.have)+' '+esc(r.unit)+'</div></div><button type="button" class="alt" data-shop-action="bought" data-shop-key="'+esc(r.key)+'">Bought</button></div>').join(''):'<p class="muted">'+(rows.length?'Everything on this list has been marked bought.':'No items currently need purchasing.')+'</p>')+
    (bought.length?'<details class="shop-bought"><summary>Purchased ('+bought.length+')</summary>'+bought.map(r=>'<div class="item row"><span>'+esc(r.name)+'</span><button type="button" class="alt" data-shop-action="undo" data-shop-key="'+esc(r.key)+'">Undo</button></div>').join('')+'</details>':'')+
-   (rows.length&&pending.length===0?'<div class="actions"><button type="button" class="danger" data-shop-action="delete">Delete completed list</button></div>':'')+
+   ((rows.length||Object.keys(state.bought).length)&&pending.length===0?'<div class="actions"><button type="button" class="danger" data-shop-action="delete">Delete completed list</button></div>':'')+
    '<p class="muted small">Marking something bought clears it from this checklist only. Update My Stock separately when purchases arrive.</p>';
  }
  card.onclick=function(e){
