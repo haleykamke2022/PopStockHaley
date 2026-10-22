@@ -968,4 +968,65 @@ render=function(){
 };
 tab='home';
 
+
+/* Optional restocking: legacy supplies retain alerts; new supplies default to no restock tracking. */
+function restockTracked(i){return i?.restockEnabled!==false}
+function restockLowItems(){return alpha(d.items.filter(i=>!isShapeStockItem(i)&&restockTracked(i)&&Number.isFinite(Number(i.qty))&&Number(i.qty)<=Number(i.min??0)))}
+const optionalRestockEditBefore=editItem;
+editItem=function(x='',cat=''){
+ optionalRestockEditBefore(x,cat);
+ const form=$('dialogBody')?.querySelector('form');if(!form)return;
+ const item=d.items.find(v=>v.id===x),enabled=item?restockTracked(item):false;
+ const min=form.elements.min,restock=form.elements.restock;
+ if(!min||!restock)return;
+ const minBox=min.closest('div'),restockBox=restock.closest('div');
+ const grid=min.closest('.formgrid'),toggle=document.createElement('label');
+ toggle.className='restock-option';
+ toggle.innerHTML='<input type="checkbox" name="restockEnabled" style="width:auto" '+(enabled?'checked':'')+'> Track low stock and restocking';
+ grid?.insertAdjacentElement('afterend',toggle);
+ const note=document.createElement('p');note.className='muted small';
+ note.textContent='Optional. Turn off for seasonal or one-time supplies; they will not appear in general low-stock alerts or restock lists.';
+ toggle.insertAdjacentElement('afterend',note);
+ const update=()=>{const on=form.elements.restockEnabled.checked;for(const el of [min,restock])el.disabled=!on;for(const el of [minBox,restockBox])if(el)el.style.opacity=on?'1':'0.45'};
+ form.elements.restockEnabled.addEventListener('change',update);update();
+};
+const optionalRestockSaveBefore=saveItem;
+saveItem=function(e,x){
+ const on=!!e.target.elements.restockEnabled?.checked;
+ optionalRestockSaveBefore(e,x);
+ const item=d.items.find(v=>v.id===x)||d.items[d.items.length-1];
+ if(item){item.restockEnabled=on;save();render()}
+};
+homeLowStock=function(){return restockLowItems()};
+const optionalRestockShoppingBefore=renderShopping;
+renderShopping=function(){
+ optionalRestockShoppingBefore();
+ const p=d[shoppingPlanKind]?.find(v=>v.id===shoppingPlanId);
+ if(p)return;
+ const cards=$('shopping')?.querySelectorAll('.card');if(!cards?.[1])return;
+ const rows=restockLowItems().map(i=>({i,required:Number(i.restock??i.min??0),have:Number(i.qty)||0,buy:Math.max(0,Number(i.restock??i.min??0)-(Number(i.qty)||0))}));
+ cards[1].innerHTML=rows.length?rows.map(r=>'<div class="item"><div class="row"><strong>'+esc(r.i.name)+'</strong><span class="pill">'+(r.buy>0?'Buy '+fmt(r.buy)+' '+esc(r.i.unit||'each'):'In stock')+'</span></div><div class="small muted">Have '+fmt(r.have)+' '+esc(r.i.unit||'each')+' · Restock target '+fmt(r.required)+'</div></div>').join(''):'<p class="muted">No tracked supplies currently need restocking.</p>';
+};
+const optionalRestockCopyBefore=copyShop;
+copyShop=function(){
+ const p=d[shoppingPlanKind]?.find(v=>v.id===shoppingPlanId);
+ if(p)return optionalRestockCopyBefore();
+ const rows=restockLowItems().map(i=>{const buy=Math.max(0,Number(i.restock??i.min??0)-Number(i.qty||0));return i.name+' — buy '+fmt(buy)+' '+(i.unit||'each')});
+ const output='General restock\n'+(rows.length?rows.join('\n'):'No tracked supplies currently need restocking.');
+ if(navigator.clipboard?.writeText)navigator.clipboard.writeText(output).then(()=>alert('Copied')).catch(()=>prompt('Copy list:',output));
+ else prompt('Copy list:',output);
+};
+const optionalRestockStockBefore=renderStock;
+renderStock=function(){
+ optionalRestockStockBefore();
+ if(!selected||shapeCategories().some(c=>c.id===selected))return;
+ const list=alpha(d.items.filter(i=>catOf(i)?.id===selected));
+ const entries=$('stock')?.querySelectorAll('.card .item')||[];
+ list.forEach((item,k)=>{
+  if(restockTracked(item)||!entries[k])return;
+  const detail=entries[k].querySelector('.small.muted');
+  if(detail)detail.textContent='Restock tracking off · '+(item.qty??0)+' '+(item.unit||'each')+' in stock';
+ });
+};
+
 save();render();if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
