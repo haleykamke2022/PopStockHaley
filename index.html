@@ -1593,4 +1593,91 @@ renderPlans=function(kind){
  }
 };
 
+
+/* Phase 3 Step 2: recorded event profitability; zero is distinct from unknown. */
+function psMoneyInput(v){return v===null||v===undefined||v===''?'':String(v)}
+function psProfitModel(p){
+ const r=p.report||{},c=r.actualCosts||{},sales=Number(r.sales)||0;
+ const evt=eventExpenses(p);
+ const names=['ingredients','packaging','processing','labor','other'];
+ const values=names.map(k=>c[k]===undefined||c[k]===null||c[k]===''?null:Number(c[k]));
+ const valid=values.every(v=>v!==null&&Number.isFinite(v)&&v>=0);
+ const recorded=values.reduce((n,v)=>n+(v===null?0:v),0);
+ const total=evt+recorded;
+ const profit=sales-total;
+ return {sales,evt,recorded,total,profit,valid,margin:sales>0?profit/sales*100:null};
+}
+function psProfitEdit(x){
+ const p=d.events.find(v=>v.id===x);if(!p||!p.report){alert('Save an event report with actual sales first.');return}
+ const c=p.report.actualCosts||{};
+ const fields=[['ingredients','Actual ingredient cost'],['packaging','Actual packaging cost'],['processing','Payment processing fees'],['labor','Labor cost'],['other','Other actual production costs']];
+ modal('Actual costs: '+p.name,
+ '<form onsubmit="psProfitSave(event,\''+x+'\')">'+
+ '<p class="notice">Recorded sales: '+money(p.report.sales)+' · Event fees and event expenses: '+money(eventExpenses(p))+'</p>'+
+ '<p class="muted small">Enter the actual costs attributable to this event. Use 0 when there really was no cost, and leave blank if unknown. Do not enter the vendor fee or expenses already saved under Event Details again.</p>'+
+ fields.map(v=>'<label>'+v[1]+' ($)</label><input name="'+v[0]+'" type="number" min="0" step="0.01" value="'+esc(psMoneyInput(c[v[0]]))+'" placeholder="Unknown (leave blank)">').join('')+
+ '<p class="muted small">For ingredients, use the cost of ingredients consumed, not the entire grocery receipt if some supplies remain. These amounts do not change inventory or separately logged Business Expenses.</p>'+
+ '<div class="actions"><button>Save actual costs</button></div></form>');
+}
+function psProfitSave(e,x){
+ e.preventDefault();const p=d.events.find(v=>v.id===x);if(!p?.report)return;
+ const keys=['ingredients','packaging','processing','labor','other'],f=e.target.elements,c={};
+ for(const k of keys){const raw=f[k].value.trim();if(raw===''){c[k]=null;continue}const n=Number(raw);if(!Number.isFinite(n)||n<0){alert('Enter nonnegative cost amounts or leave unknown fields blank.');return}c[k]=n}
+ p.report.actualCosts=c;save();$('dialog').close();render();
+}
+function psProfitView(x){
+ const p=d.events.find(v=>v.id===x);if(!p||!p.report)return;
+ const m=psProfitModel(p),c=p.report.actualCosts||{},keys=[['ingredients','Ingredients'],['packaging','Packaging'],['processing','Processing fees'],['labor','Labor'],['other','Other production']];
+ modal('Profit report: '+p.name,
+ '<p class="notice"><strong>Actual recorded revenue: '+money(m.sales)+'</strong><br>Event fees and expenses: '+money(m.evt)+'</p>'+
+ '<div class="card"><h3>Production costs</h3>'+
+ keys.map(([k,label])=>'<div class="item">'+label+': '+(c[k]===undefined||c[k]===null?'Unknown':money(c[k]))+'</div>').join('')+'</div>'+
+ (m.valid?'<div class="notice"><strong>Reported net contribution: '+money(m.profit)+'</strong><br>Total recorded event costs: '+money(m.total)+'<br>Margin: '+(m.margin===null?'N/A':m.margin.toFixed(1)+'%')+'</div>':
+ '<div class="notice"><strong>Partial result only.</strong><br>Revenue minus currently entered costs: '+money(m.profit)+'. Missing actual production costs mean this is NOT net profit.</div>')+
+ '<p class="muted small">This is an event-level management result, not taxable business profit. Shared overhead, taxes, and expenses logged elsewhere are excluded unless explicitly attributed. Avoid counting the same cost twice.</p>'+
+ '<div class="actions"><button class="alt" onclick="psProfitEdit(\''+x+'\')">Edit costs</button><button type="button" class="alt" onclick="$(\'dialog\').close()">Close</button></div>');
+}
+const psProfitBasePlans=renderPlans;
+renderPlans=function(kind){
+ psProfitBasePlans(kind);if(kind!=='events')return;
+ for(const p of d.events||[]){
+  if(!p.report)continue;
+  const card=[...$('events').querySelectorAll('.card')].find(c=>c.querySelector('button[onclick="editPlan(\'events\',\''+p.id+'\')"]'));
+  if(!card)continue;
+  const m=psProfitModel(p),wrap=document.createElement('div'),button=document.createElement('button');
+  wrap.className='actions';button.type='button';button.className='alt';button.textContent=m.valid?'View profit report':'Enter actual production costs';
+  button.addEventListener('click',()=>m.valid?psProfitView(p.id):psProfitEdit(p.id));
+  wrap.append(button);card.append(wrap);
+ }
+};
+const psProfitBaseBusiness=renderBusiness;
+renderBusiness=function(){
+ psProfitBaseBusiness();
+ const root=$('business');if(!root)return;
+ const year=Number($('reportYear')?.value)||new Date().getFullYear();
+ const reported=(d.events||[]).filter(p=>p.report&&String(p.date||'').startsWith(String(year)));
+ const complete=reported.filter(p=>psProfitModel(p).valid);
+ const revenue=complete.reduce((n,p)=>n+psProfitModel(p).sales,0);
+ const cost=complete.reduce((n,p)=>n+psProfitModel(p).total,0);
+ const card=document.createElement('div');card.className='card';
+ card.innerHTML='<h3>Event profitability ('+year+')</h3>'+
+ '<p class="muted small">Only events with all five actual cost fields filled are included in calculated margins. This is an event-level report, not tax profit.</p>'+
+ '<p><strong>Fully costed events: '+complete.length+' of '+reported.length+'</strong><br>Revenue from fully costed events: '+money(revenue)+
+ '<br>Attributed event costs: '+money(cost)+'<br><strong>Net contribution from fully costed events: '+money(revenue-cost)+'</strong></p>'+
+ (reported.length!==complete.length?'<p class="muted small">'+(reported.length-complete.length)+' event(s) need cost details before inclusion.</p>':'')+
+ '<div class="actions"><button type="button" class="alt" data-profit-export>Export profit CSV</button></div>';
+ card.querySelector('[data-profit-export]').addEventListener('click',psProfitExport);
+ root.append(card);
+};
+function psProfitExport(){
+ const year=Number($('reportYear')?.value)||new Date().getFullYear();
+ const rows=[['Event','Date','Recorded sales','Event fees and expenses','Ingredients','Packaging','Processing','Labor','Other','Fully costed','Event net contribution']];
+ for(const p of d.events||[]){
+  if(!p.report||!String(p.date||'').startsWith(String(year)))continue;
+  const m=psProfitModel(p),c=p.report.actualCosts||{};
+  rows.push([p.name,p.date,m.sales,m.evt,...['ingredients','packaging','processing','labor','other'].map(k=>c[k]??''),m.valid?'Yes':'No',m.valid?m.profit:'']);
+ }
+ exportCsv('popstock-event-profit-'+year+'.csv',rows);
+}
+
 save();render();if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
