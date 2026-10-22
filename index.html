@@ -1528,4 +1528,69 @@ renderSettings=function(){
 const beginnerRenderBefore=render;
 render=function(){beginnerRenderBefore();renderGuide();document.querySelectorAll('main section').forEach(section=>section.classList.toggle('show',section.id===tab))};
 
+
+/* Phase 3 Step 1: event forecasts, isolated from production and inventory. */
+function psForecast(p){
+ const f=p.forecast||{}, price=Number(f.price??4), planned=(p.lines||[]).reduce((n,l)=>n+Math.max(0,Number(l.count)||0),0);
+ let ingredients=0,unknown=0,unresolved=0;
+ for(const l of p.lines||[]){
+  if(!(Number(l.count)>0))continue;
+  const r=d.recipes.find(v=>v.id===l.flavor),yieldSize=r?Number(effectiveYield(r,l)):0;
+  if(!r||!(yieldSize>0)){unresolved++;continue}
+  const c=flavorCost(r);ingredients+=c.cost*Math.ceil(Number(l.count)/yieldSize);unknown+=c.unknown;
+ }
+ const expenses=eventExpenses(p),extra=Number(f.extra??0),total=ingredients+expenses+extra;
+ const scenarios=[Number(f.low??40),Number(f.expected??70),Number(f.high??100)].map(rate=>{
+  const sold=Math.floor(planned*rate/100),revenue=sold*price;
+  return {rate,sold,revenue,profit:revenue-total};
+ });
+ return {price,planned,ingredients,unknown,unresolved,expenses,extra,total,scenarios,breakEven:price>0?Math.ceil(total/price):null};
+}
+function psForecastEdit(x){
+ const p=d.events.find(e=>e.id===x);if(!p)return;const f=p.forecast||{};
+ modal('Forecast: '+p.name,
+ '<form onsubmit="psForecastSave(event,\''+x+'\')">'+
+ '<p class="notice">Planning only. No stock deduction or change to event reports.</p>'+
+ '<p class="muted small">Planned production: '+(p.lines||[]).reduce((n,l)=>n+(Number(l.count)||0),0)+' pops. Edit the event to change this before production begins.</p>'+
+ '<label>Average selling price per pop ($)</label><input name="price" type="number" step="0.01" min="0" required value="'+Number(f.price??4)+'">'+
+ '<label>Additional estimated costs ($)</label><input name="extra" type="number" step="0.01" min="0" required value="'+Number(f.extra??0)+'">'+
+ '<p class="muted small">Vendor fees and existing event expenses are included automatically. Do not double-count them. Use average selling price to account for bundle discounts.</p>'+
+ '<h3>Sell-through assumptions</h3><div class="formgrid">'+
+ [['low','Low',40],['expected','Expected',70],['high','High',100]].map(v=>'<div><label>'+v[1]+' (%)</label><input name="'+v[0]+'" type="number" min="0" max="100" step="1" required value="'+Number(f[v[0]]??v[2])+'"></div>').join('')+
+ '</div><div class="actions"><button>Save forecast</button></div></form>');
+}
+function psForecastSave(e,x){
+ e.preventDefault();const p=d.events.find(v=>v.id===x);if(!p)return;
+ const z=e.target.elements,f={price:Number(z.price.value),extra:Number(z.extra.value),low:Number(z.low.value),expected:Number(z.expected.value),high:Number(z.high.value)};
+ if(Object.values(f).some(n=>!Number.isFinite(n))||f.price<0||f.extra<0||f.low<0||f.low>f.expected||f.expected>f.high||f.high>100){
+  alert('Check price, costs and low / expected / high percentages (0–100).');return;
+ }
+ p.forecast=f;save();$('dialog').close();render();
+}
+function psForecastView(x){
+ const p=d.events.find(e=>e.id===x);if(!p)return;const m=psForecast(p);
+ modal('Event forecast: '+p.name,
+ '<p class="muted small">Estimates only, not actual profit. Labor is included only if entered as an additional cost.</p>'+
+ '<div class="notice">Planned: '+m.planned+' pops · Average price: '+money(m.price)+'<br>Recipe ingredients: '+money(m.ingredients)+
+ '<br>Event fees and expenses: '+money(m.expenses)+'<br>Additional estimated costs: '+money(m.extra)+
+ '<br><strong>Total estimated cost: '+money(m.total)+'</strong></div>'+
+ (m.unknown||m.unresolved?'<p class="bad">Incomplete cost estimate: '+m.unknown+' ingredient cost(s) missing; '+m.unresolved+' line(s) without a valid flavor/shape yield. Estimated profit may be overstated.</p>':'')+
+ '<div class="card"><h3>Sales scenarios</h3>'+
+ m.scenarios.map((s,i)=>'<div class="item"><strong>'+['Low','Expected','High'][i]+' ('+s.rate+'%): '+s.sold+' sold</strong><div class="small">Revenue '+money(s.revenue)+' · Estimated profit '+money(s.profit)+'</div></div>').join('')+'</div>'+
+ '<div class="notice">Break-even: '+(m.breakEven===null?'Set a selling price':m.breakEven+' pops'+(m.breakEven>m.planned?' (more than planned)':''))+'</div>'+
+ (p.report?'<p class="muted small">Recorded sales: '+money(p.report.sales)+'. See Event Report for actual results.</p>':'')+
+ '<div class="actions"><button class="alt" onclick="psForecastEdit(\''+x+'\')">Edit forecast</button><button type="button" class="alt" onclick="$(\'dialog\').close()">Close</button></div>');
+}
+const psForecastOriginalRenderPlans=renderPlans;
+renderPlans=function(kind){
+ psForecastOriginalRenderPlans(kind);if(kind!=='events')return;
+ for(const p of d.events||[]){
+  const card=[...$('events').querySelectorAll('.card')].find(c=>c.querySelector('button[onclick="editPlan(\'events\',\''+p.id+'\')"]'));
+  if(!card)continue;
+  const wrap=document.createElement('div'),button=document.createElement('button');wrap.className='actions';
+  button.type='button';button.className='alt';button.textContent=p.forecast?'View forecast':'Forecast sales & profit';
+  button.addEventListener('click',()=>p.forecast?psForecastView(p.id):psForecastEdit(p.id));wrap.append(button);card.append(wrap);
+ }
+};
+
 save();render();if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
