@@ -864,4 +864,42 @@ renderPlans=function(kind){
  }
 };
 
+
+/* Event cleanup: allow deletion of completed test events without changing stock. */
+function removeEventRecord(eventId){
+ const p=d.events.find(v=>v.id===eventId);if(!p)return;
+ const linked=(d.freezer||[]).filter(v=>v.reportEvent===eventId);
+ const stockChanged=!!(p.deducted||p.eventPackagingUsed||p.used||p.usedFreezer?.length);
+ const message='Delete event "'+p.name+'"?\n\n'+
+  'This removes the event and its report from PopStock.\n'+
+  (stockChanged?'IMPORTANT: Ingredient, stick, bag, sticker and freezer stock already changed by this event will NOT be restored. Correct any test stock counts separately in My Stock.\n':'No stock reversal will occur.\n')+
+  (linked.length?'There are '+linked.length+' freezer record(s) linked to this event. They will remain in Freezer until you review them.\n':'')+
+  '\nThis action cannot be undone. Download a backup first.';
+ if(!confirm(message))return;
+ if((p.status==='Completed'||p.status==='In progress')&&prompt('To confirm deletion, type DELETE:')!=='DELETE'){alert('Deletion cancelled.');return}
+ p1Commit(()=>{
+  d.events=d.events.filter(v=>v.id!==eventId);
+  if(shoppingEvent===eventId)shoppingEvent='';
+  if(shoppingPlanKind==='events'&&shoppingPlanId===eventId){shoppingPlanKind='';shoppingPlanId=''}
+  d.log.push({type:'Event record deleted',kind:'events',id:eventId,name:p.name,date:new Date().toISOString(),stockRestored:false});
+ });
+}
+const eventDeletionBeforeRender=renderPlans;
+renderPlans=function(kind){
+ eventDeletionBeforeRender(kind);
+ if(kind!=='events')return;
+ for(const p of d.events){
+  const button=[...$('events').querySelectorAll('button')].find(b=>b.getAttribute('onclick')==="editPlan('events','"+p.id+"')");
+  const card=button?.closest('.card');
+  if(!card)continue;
+  const actions=card.querySelector('.actions');
+  if(actions){
+   const remove=document.createElement('button');
+   remove.type='button';remove.className='danger';remove.textContent='Delete event';
+   remove.addEventListener('click',()=>removeEventRecord(p.id));
+   actions.append(remove);
+  }
+ }
+};
+
 save();render();if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
