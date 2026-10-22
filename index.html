@@ -2495,40 +2495,5 @@ renderFeedback=function(){
 };
 
 
-/* Phase 5 Step 3: structured feedback drafting for the existing Google Form. */
-function psFeedbackDraftText(){
- const form=$('psFeedbackDraft');if(!form)return '';
- const f=form.elements;
- return ['PopStock Beta Feedback','Type: '+f.kind.value,'Feature: '+f.area.value,'Impact: '+f.impact.value,'Expected: '+f.expected.value.trim(),'Actual / suggestion: '+f.actual.value.trim(),'Steps to reproduce: '+(f.steps.value.trim()||'Not provided')].join('\n');
-}
-async function psCopyFeedbackDraft(){
- const value=psFeedbackDraftText();
- const f=$('psFeedbackDraft')?.elements;
- if(!f?.actual.value.trim()){alert('Describe what happened or what you would improve first.');return}
- try{
-  if(navigator.clipboard?.writeText){await navigator.clipboard.writeText(value);alert('Report copied. Open the Google Form and paste it into your response.');return}
- }catch{}
- prompt('Copy your report, then paste it into the Google Form:',value);
-}
-const psFeedbackBuilderPrevious=renderFeedback;
-renderFeedback=function(){
- psFeedbackBuilderPrevious();
- const root=$('feedback');if(!root)return;
- const card=document.createElement('div');card.className='card';
- card.innerHTML='<h3>Feedback Report Builder</h3>'+
- '<p class="muted small">Organize your findings before submitting them to the existing feedback form. Nothing is sent automatically or saved to your business records.</p>'+
- '<form id="psFeedbackDraft" onsubmit="event.preventDefault();psCopyFeedbackDraft()">'+
- '<label>Feedback type</label><select name="kind"><option>Bug</option><option>Feature request</option><option>Usability issue</option><option>Other suggestion</option></select>'+
- '<label>Feature or area</label><select name="area">'+['Home','Stock','Flavors','Quotes','Orders','Events','Production','Shopping','Reports','Settings','Other'].map(x=>'<option>'+x+'</option>').join('')+'</select>'+
- '<label>Impact</label><select name="impact"><option>Low - cosmetic or minor</option><option selected>Medium - slows down work</option><option>High - blocks a task</option><option>Critical - data or major functionality at risk</option></select>'+
- '<label>What did you expect?</label><textarea name="expected" rows="2" maxlength="1500"></textarea>'+
- '<label>What happened or what would you improve?</label><textarea name="actual" rows="3" maxlength="2000" required></textarea>'+
- '<label>How can we reproduce it? (optional)</label><textarea name="steps" rows="3" maxlength="1800"></textarea>'+
- '<div class="actions"><button type="submit">Copy formatted report</button>'+
- '<a href="'+esc(POPSTOCK_FEEDBACK_URL)+'" target="_blank" rel="noopener noreferrer">Open Google feedback form</a></div></form>'+
- '<p class="muted small">Never include passwords, payment details, or customers\' private information. Paste your copied report into Google Forms and press Submit there.</p>';
- const existing=[...root.querySelectorAll('h3')].find(el=>el.textContent.trim()==='Help & Suggestions')?.closest('.card');
- if(existing)root.insertBefore(card,existing);else root.appendChild(card);
-};
 
 save();render();psWelcomeFirstLaunch();if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
