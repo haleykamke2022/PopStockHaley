@@ -902,4 +902,36 @@ renderPlans=function(kind){
  }
 };
 
+
+/* Order cleanup: completed and in-progress orders can be removed without stock reversal. */
+function removeOrderRecord(orderId){
+ const p=d.orders.find(v=>v.id===orderId);if(!p)return;
+ const stockChanged=!!(p.deducted||p.used||p.usedFreezer?.length||p.packagingUsed||p.extraIngredientsUsed);
+ const message='Delete order "'+(p.name||p.customer||'Untitled')+'"?\n\n'+
+  'This removes the order and its saved production details from PopStock.\n'+
+  (stockChanged?'IMPORTANT: Ingredients, sticks, bags, stickers and freezer quantities already deducted for this order will NOT be restored. Correct test stock separately in My Stock or Freezer.\n':'No inventory will be adjusted.\n')+
+  '\nThis cannot be undone. Download a backup before deleting.';
+ if(!confirm(message))return;
+ if((p.status==='Completed'||p.status==='In progress')&&prompt('To confirm deletion, type DELETE:')!=='DELETE'){alert('Deletion cancelled.');return}
+ p1Commit(()=>{
+  d.orders=d.orders.filter(v=>v.id!==orderId);
+  if(shoppingPlanKind==='orders'&&shoppingPlanId===orderId){shoppingPlanKind='';shoppingPlanId=''}
+  d.log.push({type:'Order record deleted',kind:'orders',id:orderId,name:p.name||p.customer||'',date:new Date().toISOString(),stockRestored:false});
+ });
+}
+const orderDeletionBeforeRender=renderPlans;
+renderPlans=function(kind){
+ orderDeletionBeforeRender(kind);
+ if(kind!=='orders')return;
+ for(const p of d.orders){
+  const edit=[...$('orders').querySelectorAll('button')].find(b=>b.getAttribute('onclick')==="editPlan('orders','"+p.id+"')");
+  const card=edit?.closest('.card');if(!card)continue;
+  const actions=card.querySelector('.actions');if(!actions)continue;
+  const remove=document.createElement('button');
+  remove.type='button';remove.className='danger';remove.textContent='Delete order';
+  remove.addEventListener('click',()=>removeOrderRecord(p.id));
+  actions.append(remove);
+ }
+};
+
 save();render();if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
