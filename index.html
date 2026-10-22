@@ -2453,4 +2453,45 @@ renderFeedback=function(){
  root.insertBefore(intro,root.children[1]||null);
 };
 
+
+/* Phase 5 Step 2: local tester checklist, with progress separate from business data. */
+const psBetaTasks=[
+ ['setup','Explore Getting Started and the Settings sections'],
+ ['stock','Create or inspect an ingredient and its purchase cost'],
+ ['flavors','Create or inspect a flavor recipe and shape'],
+ ['quote','Try an estimate and its order conversion'],
+ ['production','Explore production and shopping workflows'],
+ ['events','Explore an event forecast and profit report'],
+ ['backup','Download and inspect a backup without restoring it'],
+ ['feedback','Open the feedback form and report your experience']
+];
+function psBetaTaskState(){
+ try{const v=JSON.parse(localStorage.getItem('popstock_beta_tasks_v1')||'{}');return v&&typeof v==='object'&&!Array.isArray(v)?v:{}}catch{return {}}
+}
+function psBetaTaskToggle(key,checked){
+ if(!psBetaTasks.some(([id])=>id===key))return;
+ const current=psBetaTaskState();current[key]=!!checked;
+ try{localStorage.setItem('popstock_beta_tasks_v1',JSON.stringify(current))}catch{}
+ psBetaTaskRender();
+}
+function psBetaTaskRender(){
+ const target=$('psBetaTasks');if(!target)return;
+ const state=psBetaTaskState(),complete=psBetaTasks.filter(([id])=>state[id]).length;
+ target.innerHTML='<div class="row wrap"><strong>'+complete+' of '+psBetaTasks.length+' tasks complete</strong><span class="pill">Device only</span></div>'+
+ '<p class="muted small">Check each task after trying it. You can use sample information. This checklist does not change stock, recipes, or orders and is not shared automatically.</p>'+
+ psBetaTasks.map(([id,label])=>'<label style="display:flex;align-items:center;gap:10px;padding:8px 0"><input type="checkbox" style="width:auto;min-height:auto" data-beta-task="'+id+'" '+(state[id]?'checked':'')+'><span>'+esc(label)+'</span></label>').join('')+
+ '<p class="muted small">The feedback form below is the way to submit findings. Completing this checklist alone does not send results.</p>';
+ target.querySelectorAll('[data-beta-task]').forEach(el=>el.addEventListener('change',()=>psBetaTaskToggle(el.dataset.betaTask,el.checked)));
+}
+const psBetaTasksPrevious=renderFeedback;
+renderFeedback=function(){
+ psBetaTasksPrevious();
+ const root=$('feedback');if(!root)return;
+ const card=document.createElement('div');card.className='card';
+ card.innerHTML='<h3>Beta Testing Checklist</h3><div id="psBetaTasks"></div>';
+ const guide=[...root.querySelectorAll('h3')].find(el=>el.textContent.trim()==='Beta Tester Guide')?.closest('.card');
+ if(guide)guide.insertAdjacentElement('afterend',card);else root.prepend(card);
+ psBetaTaskRender();
+};
+
 save();render();psWelcomeFirstLaunch();if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
