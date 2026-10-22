@@ -2077,4 +2077,35 @@ renderSettings=function(){
  $('settings').append(card);
 };
 
-save();render();if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
+
+/* One-time welcome for empty first-time installations only. */
+function psOnboardingHasHistory(){
+ const arrays=['items','recipes','orders','events','customerQuotes','freezer','shapes','businessExpenses','historicalEvents','priceHistory'];
+ if(arrays.some(k=>Array.isArray(d[k])&&d[k].length>0))return true;
+ if(Array.isArray(d.log)&&d.log.length>0)return true;
+ if(d.shoppingChecklists&&Object.keys(d.shoppingChecklists).length>0)return true;
+ return !!(d.settings?.setupGuideCompleted||d.settings?.beginnerBackupConfirmed);
+}
+function psWelcomeDismiss(start){
+ try{localStorage.setItem('popstock_welcome_seen_v1','1')}catch{}
+ if(start)go('guide');
+}
+function psWelcomeFirstLaunch(){
+ const key='popstock_welcome_seen_v1';
+ if(localStorage.getItem(key))return;
+ if(psOnboardingHasHistory()){
+  try{localStorage.setItem(key,'1')}catch{}
+  return;
+ }
+ const body='<p class="muted">Let us help you set up your cake-pop business. You can complete the guide at your own pace.</p>'+
+ '<div class="card"><strong>Your setup checklist</strong><p class="small">Add your supplies, set up shapes and flavors, create your first estimate and order, and save a backup.</p></div>'+
+ '<p class="muted small">Your information stays on this device. You can revisit Getting Started from More until the checklist is complete.</p>'+
+ '<div class="actions"><button type="button" id="psWelcomeStart">Start Setup</button><button type="button" class="alt" id="psWelcomeLater">Not Now</button></div>';
+ modal('Welcome to PopStock!',body);
+ const dialog=$('dialog');
+ dialog.querySelector('#psWelcomeStart').addEventListener('click',()=>{dialog.close();psWelcomeDismiss(true)});
+ dialog.querySelector('#psWelcomeLater').addEventListener('click',()=>{dialog.close();psWelcomeDismiss(false)});
+ dialog.addEventListener('close',()=>{try{localStorage.setItem(key,'1')}catch{}},{once:true});
+}
+
+save();render();psWelcomeFirstLaunch();if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
