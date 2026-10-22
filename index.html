@@ -804,7 +804,16 @@ if(Array.isArray(d.costLibrary)&&d.costLibrary.length){
  d.retiredCostPrices=[...(d.retiredCostPrices||[]),...d.costLibrary];delete d.costLibrary;
 }
 
-function optionalOptions(kind,selected){return '<option value="">Select supply</option>'+alpha(d.items.filter(i=>!isShapeStockItem(i))).sort((a,b)=>Number(popPackKind(b)===kind)-Number(popPackKind(a)===kind)||a.name.localeCompare(b.name)).map(i=>'<option value="'+esc(i.id)+'" '+(selected===i.id?'selected':'')+'>'+esc(i.name)+'</option>').join('')}
+function optionalOptions(kind,selected){
+ const list=alpha(d.items.filter(i=>{
+  if(isShapeStockItem(i))return false;
+  const name=normal(i.name);
+  if(kind==='bag')return /\b(bags?|treat bags?|cello(?:phane)?|wrappers?|sleeves?|clear bags?|poly bags?|goodie bags?)\b/.test(name);
+  if(kind==='label')return /\b(labels?|stickers?|seals?|tags?)\b/.test(name);
+  return false;
+ }));
+ return '<option value="">Select '+(kind==='bag'?'treat bag / wrapper':'sticker / label')+'</option>'+list.map(i=>'<option value="'+esc(i.id)+'" '+(selected===i.id?'selected':'')+'>'+esc(i.name)+'</option>').join('');
+}
 const addonEditPlan=editPlan;
 editPlan=function(kind,x=''){addonEditPlan(kind,x);if(kind!=='orders'||!$('planlines'))return;const p=d.orders.find(v=>v.id===x)||{},form=$('dialogBody').querySelector('form');form.querySelector('.actions').insertAdjacentHTML('beforebegin','<div class="pair"><h3>Optional custom-order add-ons</h3><p class="muted small">Sticks follow the shape. Bags and stickers are only used when selected for this order.</p><label><input type="checkbox" name="addBag" style="width:auto" '+(p.addBag?'checked':'')+'> Add bags</label><label>Bag supply</label><select name="bagSupply">'+optionalOptions('bag',p.bagSupply)+'</select><label><input type="checkbox" name="addLabel" style="width:auto" '+(p.addLabel?'checked':'')+'> Add stickers / labels</label><label>Sticker supply</label><select name="labelSupply">'+optionalOptions('label',p.labelSupply)+'</select></div>')};
 const addonSavePlan=savePlan;
