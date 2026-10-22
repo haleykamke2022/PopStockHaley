@@ -2108,4 +2108,57 @@ function psWelcomeFirstLaunch(){
  dialog.addEventListener('close',()=>{try{localStorage.setItem(key,'1')}catch{}},{once:true});
 }
 
+
+/* Phase 4 Step 1: optional local beta feedback. No uploads, accounts, or inventory changes. */
+d.betaFeedback ||= [];
+popExtraTabs.push(['feedback','Beta Feedback']);
+$('guide').insertAdjacentHTML('beforebegin','<section id="feedback"></section>');
+function psFeedbackEdit(){
+ modal('Send beta feedback',
+  '<form id="psFeedbackForm" onsubmit="psFeedbackSave(event)">'+
+  '<p class="muted small">Feedback stays on this device until you export and share it. Do not include customer names or private information.</p>'+
+  '<label>Feedback type</label><select name="kind"><option>Bug</option><option>Suggestion</option><option>Usability</option><option>Other</option></select>'+
+  '<label>Area of PopStock</label><select name="area">'+
+  ['Home','Stock','Orders','Events','Quotes','Customers','Flavors','Production','Shopping','Reports','Settings','Other'].map(v=>'<option>'+v+'</option>').join('')+'</select>'+
+  '<label>What happened, or what would you improve?</label><textarea name="description" required rows="4" maxlength="3000" placeholder="Describe the issue or suggestion"></textarea>'+
+  '<label>Steps to reproduce (optional)</label><textarea name="steps" rows="3" maxlength="2000" placeholder="1. Open ..."></textarea>'+
+  '<label>Priority</label><select name="priority"><option>Low</option><option selected>Medium</option><option>High</option></select>'+
+  '<div class="actions"><button type="submit">Save feedback</button></div></form>');
+}
+function psFeedbackSave(e){
+ e.preventDefault();const f=e.target.elements;
+ const description=f.description.value.trim();
+ if(!description){alert('Add a description first.');return}
+ d.betaFeedback.push({id:id(),createdAt:new Date().toISOString(),kind:f.kind.value,area:f.area.value,description,steps:f.steps.value.trim(),priority:f.priority.value,status:'Open'});
+ save();$('dialog').close();render();
+}
+function psFeedbackStatus(x,status){
+ const item=d.betaFeedback.find(v=>v.id===x);if(!item)return;
+ item.status=status;save();render();
+}
+function psFeedbackExport(){
+ const data={format:'popstock-beta-feedback',version:1,exportedAt:new Date().toISOString(),feedback:d.betaFeedback};
+ const file=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
+ const url=URL.createObjectURL(file),a=document.createElement('a');
+ a.href=url;a.download='popstock-beta-feedback-'+new Date().toISOString().slice(0,10)+'.json';a.click();
+ setTimeout(()=>URL.revokeObjectURL(url),1500);
+}
+function renderFeedback(){
+ const root=$('feedback');if(!root)return;
+ root.innerHTML='<div class="row wrap"><h2>Beta Feedback</h2><button type="button" id="psFeedbackAdd">+ Feedback</button></div>'+
+ '<p class="muted small">Record bugs and suggestions while testing. Feedback is saved locally and is not automatically sent to the developer.</p>'+
+ '<div class="actions"><button type="button" class="alt" id="psFeedbackDownload">Export feedback JSON</button></div>'+
+ (d.betaFeedback.slice().reverse().map(v=>'<div class="card"><div class="row wrap"><strong>'+esc(v.kind)+' · '+esc(v.area)+'</strong><span class="pill">'+esc(v.status||'Open')+'</span></div>'+
+ '<p>'+esc(v.description)+'</p>'+
+ (v.steps?'<p class="muted small">Steps: '+esc(v.steps)+'</p>':'')+
+ '<p class="muted small">'+esc((v.createdAt||'').slice(0,10))+' · Priority: '+esc(v.priority)+'</p>'+
+ '<div class="actions">'+(v.status==='Open'?'<button type="button" class="alt" data-feedback-id="'+esc(v.id)+'" data-feedback-status="Resolved">Mark resolved</button>':
+ '<button type="button" class="alt" data-feedback-id="'+esc(v.id)+'" data-feedback-status="Open">Reopen</button>')+'</div></div>').join('')||'<div class="card muted">No feedback saved yet.</div>');
+ root.querySelector('#psFeedbackAdd').addEventListener('click',psFeedbackEdit);
+ root.querySelector('#psFeedbackDownload').addEventListener('click',psFeedbackExport);
+ root.querySelectorAll('[data-feedback-id]').forEach(btn=>btn.addEventListener('click',()=>psFeedbackStatus(btn.dataset.feedbackId,btn.dataset.feedbackStatus)));
+}
+const psFeedbackBeforeRender=render;
+render=function(){psFeedbackBeforeRender();renderFeedback();document.querySelectorAll('main section').forEach(section=>section.classList.toggle('show',section.id===tab))};
+
 save();render();psWelcomeFirstLaunch();if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
