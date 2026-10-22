@@ -1291,4 +1291,79 @@ renderHome=function(){
  });
 };
 
+
+/* Phase 2 / Step 3: review saved quotes before creating a planned order. */
+function quoteOrderFor(quoteId){return d.orders.find(o=>o.sourceQuoteId===quoteId)}
+function convertQuoteToOrder(quoteId){
+ const quote=d.customerQuotes.find(q=>q.id===quoteId);
+ if(!quote){alert('This estimate is no longer available.');return}
+ const prior=quoteOrderFor(quoteId);
+ if(prior){alert('This estimate already has an order: '+(prior.name||'Untitled')+'. Open Orders to review it.');go('orders');return}
+ const flavor=d.recipes.find(r=>r.id===quote.flavor),shape=d.shapes.find(s=>s.id===quote.shape);
+ if(!flavor||!shape||!(Number(shape.yield)>0)||!Number.isInteger(Number(quote.count))||Number(quote.count)<=0){alert('The estimate has a missing flavor, shape, or invalid quantity. Edit it before converting.');return}
+ const price=Number(quote.price);
+ if(!Number.isFinite(price)||price<0){alert('Edit the estimate selling price before converting.');return}
+ modal('Convert estimate to order',
+ '<form onsubmit="saveQuoteOrder(event,\''+quoteId+'\')">'+
+ '<p class="notice">Review before creating a planned order. Your estimate remains saved. No stock is deducted until production starts.</p>'+
+ '<label>Customer / order name</label><input name="name" required value="'+esc(quote.customer||'')+'">'+
+ '<label>Due date</label><input type="date" name="date" required>'+
+ '<div class="pair"><h3>From your estimate</h3><p><strong>Flavor:</strong> '+esc(flavor.name)+'</p><p><strong>Shape:</strong> '+esc(shape.name)+'</p><p><strong>Quantity:</strong> '+Number(quote.count)+' pops</p><p><strong>Quoted price:</strong> '+money(price)+' per pop · '+money(Number(quote.count)*price)+' total</p></div>'+
+ '<label>Order notes</label><textarea name="notes">'+esc(quote.notes||'')+'</textarea>'+
+ '<div class="actions"><button type="submit">Create planned order</button><button type="button" class="alt" onclick="document.getElementById(\'dialog\').close()">Cancel</button></div></form>');
+}
+function saveQuoteOrder(event,quoteId){
+ event.preventDefault();
+ const quote=d.customerQuotes.find(q=>q.id===quoteId);
+ if(!quote||quoteOrderFor(quoteId)){alert('This estimate has already been converted or is no longer available.');return}
+ const f=event.target,name=f.elements.name.value.trim(),date=f.elements.date.value;
+ const flavor=d.recipes.find(r=>r.id===quote.flavor),shape=d.shapes.find(s=>s.id===quote.shape),count=Number(quote.count),price=Number(quote.price);
+ if(!name||!date||!flavor||!shape||!(Number(shape.yield)>0)||!Number.isInteger(count)||count<=0||!Number.isFinite(price)||price<0){alert('Check the customer name, due date, flavor, shape, quantity and price.');return}
+ const order={id:id(),name,date,status:'Planned',lines:[{flavor:flavor.id,shape:shape.id,count}],allocations:[],deducted:false,
+  sourceQuoteId:quoteId,quotedPricePerPop:price,quotedTotal:Math.round(count*price*100)/100,orderNotes:f.elements.notes.value,convertedAt:new Date().toISOString()};
+ const saved=p1Commit(()=>{
+  if(quoteOrderFor(quoteId))throw Error('An order already exists for this estimate.');
+  d.orders.push(order);
+  d.log.push({type:'Quote converted to order',quoteId,orderId:order.id,date:new Date().toISOString()});
+ });
+ if(saved){$('dialog').close();go('orders')}
+}
+const conversionQuoteBusinessBefore=renderBusiness;
+renderBusiness=function(){
+ conversionQuoteBusinessBefore();
+ const root=$('business');if(!root)return;
+ for(const quote of d.customerQuotes){
+  const button=[...root.querySelectorAll('button')].find(b=>b.getAttribute('onclick')==="newCustomerQuote('"+quote.id+"')");
+  const line=button?.closest('.item');if(!line)continue;
+  const prior=quoteOrderFor(quote.id);
+  const control=document.createElement('button');control.type='button';control.className='alt';
+  control.textContent=prior?'View order':'Convert to order';
+  control.addEventListener('click',()=>prior?go('orders'):convertQuoteToOrder(quote.id));
+  line.append(control);
+ }
+};
+const conversionOrderRenderBefore=renderPlans;
+renderPlans=function(kind){
+ conversionOrderRenderBefore(kind);
+ if(kind!=='orders')return;
+ for(const order of d.orders){
+  if(!order.sourceQuoteId)continue;
+  const button=[...$('orders').querySelectorAll('button')].find(b=>b.getAttribute('onclick')==="editPlan('orders','"+order.id+"')");
+  const card=button?.closest('.card');if(!card)continue;
+  const box=document.createElement('div');box.className='small muted';
+  box.textContent='From customer estimate · Quoted '+money(Number(order.quotedPricePerPop)||0)+' per pop · '+money(Number(order.quotedTotal)||0)+' total'+(order.orderNotes?' · Notes: '+order.orderNotes:'');
+  card.insertBefore(box,card.querySelector('.actions'));
+ }
+};
+const conversionEditPlanBefore=editPlan;
+editPlan=function(kind,x=''){
+ conversionEditPlanBefore(kind,x);
+ if(kind!=='orders'||!x)return;
+ const order=d.orders.find(o=>o.id===x),form=$('dialogBody')?.querySelector('form');
+ if(!order?.sourceQuoteId||!form)return;
+ const box=document.createElement('div');box.className='notice';
+ box.textContent='From saved estimate · Quoted '+money(Number(order.quotedPricePerPop)||0)+' per pop · '+money(Number(order.quotedTotal)||0)+' total'+(order.orderNotes?' · '+order.orderNotes:'');
+ form.querySelector('.actions')?.insertAdjacentElement('beforebegin',box);
+};
+
 save();render();if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
