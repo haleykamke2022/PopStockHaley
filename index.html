@@ -1709,4 +1709,107 @@ function psProfitExport(){
  exportCsv('popstock-event-profit-'+year+'.csv',rows);
 }
 
+
+/* Phase 3 Step 2 simplification: reuse inventory cost records and shared labor. */
+d.settings ||= {};
+d.settings.laborRates ||= {order:20,market:20};
+function psSharedRate(kind){return Number(d.settings.laborRates[kind]??20)}
+function psRecordedSupplyCost(usage){
+ let total=0,missing=[];
+ for(const [sid,quantity] of Object.entries(usage||{})){
+  const i=d.items.find(v=>v.id===sid),n=Number(quantity);
+  if(!i||!Number.isFinite(n)||n<0){missing.push(i?.name||'Deleted ingredient');continue}
+  const rate=Number(i.packageCost),size=Number(i.packageSize),unit=i.packageUnit||i.unit||'each';
+  const factor=convertedAmount(1,i.unit||unit,unit);
+  if(i.packageCost===undefined||!Number.isFinite(rate)||!(size>0)||factor===null){missing.push(i.name);continue}
+  total+=n*factor*rate/size;
+ }
+ return {total,missing};
+}
+function psCalculatedEventCosts(p){
+ const ing=psRecordedSupplyCost(p.used||{}),pack=psRecordedSupplyCost(p.eventPackagingUsed||p.packagingUsed||{});
+ return {ing,pack,hasIngredientUsage:!!p.used,hasPackagingUsage:!!(p.eventPackagingUsed||p.packagingUsed)};
+}
+function psSaveSharedLabor(){
+ const order=Number($('psOrderRate').value),market=Number($('psMarketRate').value);
+ if(!Number.isFinite(order)||order<0||!Number.isFinite(market)||market<0){alert('Enter hourly rates of 0 or more.');return}
+ d.settings.laborRates={order,market};save();render();
+}
+const psLaborSettingsRender=renderSettings;
+renderSettings=function(){
+ psLaborSettingsRender();
+ const card=document.createElement('div');card.className='card';
+ card.innerHTML='<h3>Hourly labor rates</h3><p class="muted small">Shared defaults used in calculators. Event hours are set for each event separately.</p>'+
+ '<label>Custom order hourly rate ($)</label><input id="psOrderRate" type="number" min="0" step="0.01" value="'+psSharedRate('order')+'">'+
+ '<label>Market / event hourly rate ($)</label><input id="psMarketRate" type="number" min="0" step="0.01" value="'+psSharedRate('market')+'">'+
+ '<button type="button" id="psLaborSaveButton">Save rates</button>';
+ card.querySelector('#psLaborSaveButton').addEventListener('click',psSaveSharedLabor);$('settings').append(card);
+};
+const psSharedPricing=pricing;
+pricing=function(x){psSharedPricing(x);if($('priceRate')){$('priceRate').value=psSharedRate('order');updatePricePreview()}};
+function psPosFees(txt){
+ if(!txt)return null;
+ const lines=String(txt).split(/\r?\n/);
+ for(const line of lines){
+  if(!/(processing|transaction|card)\s+fee|fees?\s+(charged|paid)/i.test(line))continue;
+  const matches=[...line.matchAll(/\$?\s*([0-9]+(?:\.[0-9]{2})?)/g)];
+  if(matches.length)return Number(matches[matches.length-1][1]);
+ }
+ return null;
+}
+psProfitModel=function(p){
+ const costs=psCalculatedEventCosts(p),c=p.report?.actualCosts||{},sales=Number(p.report?.sales)||0;
+ const ingredients=costs.hasIngredientUsage&&!costs.ing.missing.length?costs.ing.total:null;
+ const packaging=costs.hasPackagingUsage&&!costs.pack.missing.length?costs.pack.total:null;
+ const processing=c.processing===null||c.processing===undefined?null:Number(c.processing);
+ const hours=c.hours===null||c.hours===undefined?null:Number(c.hours);
+ const labor=hours===null?null:hours*psSharedRate('market');
+ const other=c.other===null||c.other===undefined?null:Number(c.other);
+ const expenses=eventExpenses(p),values=[ingredients,packaging,processing,labor,other];
+ const valid=values.every(v=>v!==null&&Number.isFinite(v)&&v>=0);
+ const total=expenses+values.reduce((sum,v)=>sum+(v===null?0:v),0);
+ return {sales,evt:expenses,ingredients,packaging,processing,labor,other,hours,total,profit:sales-total,valid,margin:sales?100*(sales-total)/sales:null,missing:[...costs.ing.missing,...costs.pack.missing]};
+};
+psProfitEdit=function(x){
+ const p=d.events.find(v=>v.id===x);if(!p?.report){alert('Save event sales first.');return}
+ const m=psProfitModel(p),c=p.report.actualCosts||{},feeSuggestion=psPosFees(p.report.posText);
+ const show=v=>v===null?'Not available (check stock prices)':money(v);
+ modal('Event costs: '+p.name,
+ '<form onsubmit="psProfitSave(event,\''+x+'\')">'+
+ '<p class="notice">Sales: '+money(m.sales)+'<br>Ingredients (from stock used): '+show(m.ingredients)+
+ '<br>Packaging (from stock used): '+show(m.packaging)+
+ '<br>Vendor fee and event expenses: '+money(m.evt)+'</p>'+
+ (m.missing.length?'<p class="bad">Add package pricing in Stock for: '+esc(m.missing.join(', '))+'</p>':'')+
+ '<p class="muted small">Ingredient and packaging costs use the supplies deducted for this event. The amounts above are calculated, not entered twice.</p>'+
+ '<label>POS processing fees ($)</label><input name="processing" type="number" min="0" step="0.01" value="'+esc(c.processing??feeSuggestion??'')+'" placeholder="Enter verified fees">'+
+ (feeSuggestion!==null?'<p class="muted small">Suggested '+money(feeSuggestion)+' from POS text. Verify against your processor statement before saving.</p>':'<p class="muted small">If your POS import does not list fees, check your processor and enter the verified fee. Enter 0 only if there were none.</p>')+
+ '<label>Hours worked for this event</label><input name="hours" type="number" min="0" step="0.25" value="'+esc(c.hours??'')+'" placeholder="Total hours">'+
+ '<p class="muted small">Uses shared market rate '+money(psSharedRate('market'))+'/hour. Change your hourly rates in Settings.</p>'+
+ '<label>Other production costs ($)</label><input name="other" type="number" min="0" step="0.01" value="'+esc(c.other??'')+'" placeholder="0 if none">'+
+ '<p class="muted small">Exclude booth fees, event expenses, ingredients and packaging already calculated above.</p>'+
+ '<div class="actions"><button>Save and view profit</button></div></form>');
+};
+psProfitSave=function(e,x){
+ e.preventDefault();const p=d.events.find(v=>v.id===x);if(!p?.report)return;
+ const f=e.target.elements,c={...p.report.actualCosts};
+ for(const key of ['processing','hours','other']){
+  const raw=f[key].value.trim();
+  if(!raw){alert('To view a full profit report, complete each field. Enter 0 only when appropriate.');f[key].focus();return}
+  const value=Number(raw);if(!Number.isFinite(value)||value<0){alert('Enter a valid nonnegative number.');f[key].focus();return}
+  c[key]=value;
+ }
+ p.report.actualCosts=c;save();$('dialog').close();render();psProfitView(x);
+};
+psProfitView=function(x){
+ const p=d.events.find(v=>v.id===x);if(!p?.report)return;const m=psProfitModel(p);
+ modal('Event profit: '+p.name,
+ '<div class="notice"><strong>Recorded sales: '+money(m.sales)+'</strong></div>'+
+ '<div class="card"><h3>Cost breakdown</h3>'+
+ [['Ingredients',m.ingredients],['Packaging',m.packaging],['POS fees',m.processing],['Labor',m.labor],['Event fees and expenses',m.evt],['Other production costs',m.other]].map(v=>'<div class="item">'+v[0]+': '+(v[1]===null?'Missing':money(v[1]))+'</div>').join('')+'</div>'+
+ (m.valid?'<div class="notice"><strong>Estimated event net contribution: '+money(m.profit)+'</strong><br>Margin: '+(m.margin===null?'N/A':m.margin.toFixed(1)+'%')+'</div>':
+ '<div class="notice">Incomplete: missing costs. Revenue less known costs: '+money(m.profit)+'. This is NOT net profit.</div>')+
+ '<p class="muted small">Costs use current saved stock prices and the shared market labor rate; changes to those values update the calculation. This is not a tax profit statement.</p>'+
+ '<div class="actions"><button class="alt" onclick="psProfitEdit(\''+x+'\')">Edit cost details</button><button type="button" class="alt" onclick="$(\'dialog\').close()">Close</button></div>');
+};
+
 save();render();if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
