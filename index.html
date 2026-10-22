@@ -1124,4 +1124,67 @@ document.addEventListener('keydown',function(event){
  popMoreOpen=false;popPaintNavigation();$('popMoreButton')?.focus();
 });
 
+
+/* Persistent shopping checklists, scoped to each generated shopping list. */
+d.shoppingChecklists ||= {};
+function shopCurrentPlan(){return d[shoppingPlanKind]?.find(p=>p.id===shoppingPlanId)||null}
+function shopKey(){return shopCurrentPlan()?shoppingPlanKind+':'+shoppingPlanId:'general'}
+function shopNeeds(){
+ const plan=shopCurrentPlan();
+ if(!plan)return homeLowStock().map(i=>({key:'s:'+i.id,name:i.name,id:i.id,unit:i.unit||'each',have:Number(i.qty)||0,
+  need:i.manualRestock?'Restock requested':'Buy '+fmt(Math.max(0,Number(i.restock??i.min??0)-Number(i.qty||0)))+' '+(i.unit||'each')}));
+ const rows=checkRows(freshLines(plan)).filter(r=>r.missing||r.buy>0);
+ const needs=rows.map(r=>({key:r.supply?.id?'s:'+r.supply.id:'r:'+normal(r.name)+'|'+normal(r.unit),name:r.name,id:r.supply?.id||'',unit:r.unit||'each',have:Number(r.have)||0,need:'Buy '+fmt(r.buy)+' '+(r.unit||'each')}));
+ if(shoppingPlanKind==='events'&&typeof evtPack==='function'){
+  const total=(plan.lines||[]).reduce((n,l)=>n+Number(l.count||0),0);
+  const packageData=evtPack(plan,total);
+  for(const row of packageData.rows||[]){
+   const buy=Math.max(0,row.qty-Number(row.item.qty||0));
+   if(buy>0&&!needs.some(n=>n.id===row.item.id))needs.push({key:'s:'+row.item.id,name:row.item.name,id:row.item.id,unit:row.item.unit||'each',have:Number(row.item.qty)||0,need:'Buy '+fmt(buy)+' '+(row.item.unit||'each')});
+  }
+ }
+ return needs.sort((a,b)=>a.name.localeCompare(b.name));
+}
+function shopChecklistAction(action,key){
+ const listKey=shopKey(),current=d.shoppingChecklists[listKey]||{bought:{},archived:false};
+ if(action==='restart'){d.shoppingChecklists[listKey]={bought:{},archived:false}}
+ else if(action==='delete'){
+  const rows=shopNeeds();
+  if(!rows.length||rows.some(r=>!current.bought[r.key]))return;
+  if(!confirm('Delete this completed shopping checklist? Your stock, orders, events, and restock settings will stay unchanged.'))return;
+  d.shoppingChecklists[listKey]={bought:{},archived:true};
+ }else if(action==='bought'){current.bought[key]=true;current.archived=false;d.shoppingChecklists[listKey]=current}
+ else if(action==='undo'){delete current.bought[key];d.shoppingChecklists[listKey]=current}
+ save();renderShopping();
+}
+const shopChecklistBeforeRender=renderShopping;
+renderShopping=function(){
+ shopChecklistBeforeRender();
+ const root=$('shopping'),cards=root?.querySelectorAll('.card');if(!cards?.[1])return;
+ const key=shopKey(),state=d.shoppingChecklists[key]||{bought:{},archived:false},rows=shopNeeds();
+ const card=cards[1];
+ if(state.archived){
+  card.innerHTML='<h3>Shopping list deleted</h3><p class="muted small">The completed checklist was removed. Your inventory and '+(shopCurrentPlan()?'order or event':'restock requests')+' were not changed.</p><button type="button" class="alt" data-shop-action="restart">Create new shopping list</button>';
+ }else{
+  const bought=rows.filter(r=>state.bought[r.key]),pending=rows.filter(r=>!state.bought[r.key]);
+  card.innerHTML='<div class="row"><h3>Items to buy</h3><span class="pill">'+bought.length+' of '+rows.length+' bought</span></div>'+
+   (pending.length?pending.map(r=>'<div class="item"><div class="row"><div><strong>'+esc(r.name)+'</strong><div class="small muted">'+esc(r.need)+' · Have '+fmt(r.have)+' '+esc(r.unit)+'</div></div><button type="button" class="alt" data-shop-action="bought" data-shop-key="'+esc(r.key)+'">Bought</button></div>').join(''):'<p class="muted">'+(rows.length?'Everything on this list has been marked bought.':'No items currently need purchasing.')+'</p>')+
+   (bought.length?'<details class="shop-bought"><summary>Purchased ('+bought.length+')</summary>'+bought.map(r=>'<div class="item row"><span>'+esc(r.name)+'</span><button type="button" class="alt" data-shop-action="undo" data-shop-key="'+esc(r.key)+'">Undo</button></div>').join('')+'</details>':'')+
+   (rows.length&&pending.length===0?'<div class="actions"><button type="button" class="danger" data-shop-action="delete">Delete completed list</button></div>':'')+
+   '<p class="muted small">Marking something bought clears it from this checklist only. Update My Stock separately when purchases arrive.</p>';
+ }
+ card.onclick=function(e){
+  const button=e.target.closest('button[data-shop-action]');if(!button||!card.contains(button))return;
+  shopChecklistAction(button.dataset.shopAction,button.dataset.shopKey||'');
+ };
+};
+const shopChecklistBeforeCopy=copyShop;
+copyShop=function(){
+ const state=d.shoppingChecklists[shopKey()]||{bought:{},archived:false};
+ if(state.archived)return alert('This checklist was deleted. Create a new one before copying.');
+ const rows=shopNeeds().filter(r=>!state.bought[r.key]);
+ const output=(shopCurrentPlan()?.name||'General restock')+'\n'+(rows.length?rows.map(r=>r.name+' — '+r.need).join('\n'):'Nothing left to buy.');
+ if(navigator.clipboard?.writeText)navigator.clipboard.writeText(output).then(()=>alert('Copied')).catch(()=>prompt('Copy list:',output));else prompt('Copy list:',output);
+};
+
 save();render();if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
