@@ -1614,7 +1614,7 @@ function psProfitEdit(x){
  modal('Actual costs: '+p.name,
  '<form onsubmit="psProfitSave(event,\''+x+'\')">'+
  '<p class="notice">Recorded sales: '+money(p.report.sales)+' · Event fees and event expenses: '+money(eventExpenses(p))+'</p>'+
- '<p class="muted small">Enter the actual costs attributable to this event. Use 0 when there really was no cost, and leave blank if unknown. Do not enter the vendor fee or expenses already saved under Event Details again.</p>'+
+ '<p class="muted small">Enter all five cost fields to view a full profit report. If a cost is unknown, enter 0 to continue; note that this treats it as zero and may overstate profit. Do not enter vendor fees or expenses already saved under Event Details again.</p>'+
  fields.map(v=>'<label>'+v[1]+' ($)</label><input name="'+v[0]+'" type="number" min="0" step="0.01" value="'+esc(psMoneyInput(c[v[0]]))+'" placeholder="Unknown (leave blank)">').join('')+
  '<p class="muted small">For ingredients, use the cost of ingredients consumed, not the entire grocery receipt if some supplies remain. These amounts do not change inventory or separately logged Business Expenses.</p>'+
  '<div class="actions"><button>Save actual costs</button></div></form>');
@@ -1622,8 +1622,17 @@ function psProfitEdit(x){
 function psProfitSave(e,x){
  e.preventDefault();const p=d.events.find(v=>v.id===x);if(!p?.report)return;
  const keys=['ingredients','packaging','processing','labor','other'],f=e.target.elements,c={};
- for(const k of keys){const raw=f[k].value.trim();if(raw===''){c[k]=null;continue}const n=Number(raw);if(!Number.isFinite(n)||n<0){alert('Enter nonnegative cost amounts or leave unknown fields blank.');return}c[k]=n}
- p.report.actualCosts=c;save();$('dialog').close();render();
+ for(const k of keys){
+  const raw=f[k].value.trim();
+  if(raw===''){
+   alert('To view the full profit report, enter all fields. If a number is unknown, enter 0. Note: 0 will be treated as no cost and may overstate your profit.');
+   f[k].focus();return;
+  }
+  const n=Number(raw);
+  if(!Number.isFinite(n)||n<0){alert('Enter a valid cost of 0 or more for every field.');f[k].focus();return}
+  c[k]=n;
+ }
+ p.report.actualCosts=c;save();$('dialog').close();render();psProfitView(x);
 }
 function psProfitView(x){
  const p=d.events.find(v=>v.id===x);if(!p||!p.report)return;
