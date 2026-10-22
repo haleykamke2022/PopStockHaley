@@ -23,7 +23,7 @@
 .production-check{display:inline-flex;align-items:center;gap:6px;width:49%;min-height:40px;margin:2px 0;font-size:13px;font-weight:500}
 .production-check input{width:auto;flex-shrink:0}
 @media(max-width:430px){.production-check{width:100%}}
-</style></head><body><header><img id="brandImage" src="./icons/icon-192.png" alt="App logo"><div><h1>Cake Pop Inventory</h1><small></small></div></header><nav id="nav"></nav><main><section id="home"></section><section id="quotes"></section><section id="production"></section><section id="stock"></section><section id="flavors"></section><section id="orders"></section><section id="events"></section><section id="freezer"></section><section id="shopping"></section><section id="settings"></section><footer>Personal-use app • Saved on this device • Export backups often</footer></main><dialog id="dialog"><div class="row"><h2 id="dialogTitle"></h2><button class="alt" onclick="document.getElementById('dialog').close()">✕</button></div><div id="dialogBody"></div></dialog><script>
+</style></head><body><header><img id="brandImage" src="./icons/icon-192.png" alt="App logo"><div><h1>Cake Pop Inventory</h1><small></small></div></header><nav id="nav"></nav><main><section id="home"></section><section id="guide"></section><section id="quotes"></section><section id="production"></section><section id="stock"></section><section id="flavors"></section><section id="orders"></section><section id="events"></section><section id="freezer"></section><section id="shopping"></section><section id="settings"></section><footer>Personal-use app • Saved on this device • Export backups often</footer></main><dialog id="dialog"><div class="row"><h2 id="dialogTitle"></h2><button class="alt" onclick="document.getElementById('dialog').close()">✕</button></div><div id="dialogBody"></div></dialog><script>
 const KEY='cakepop_simple_v1',NEW='cakepop_custom_v2';const defaults=['Emulsions','Inclusions','Sprinkles','Almond bark','Cake mixes','Shapes','Packaging'];const icons=['','','','','','',''];const oldNames={'Popper shapes':'Shapes','Popsicle sticks':'Packaging','Wraps':'Packaging','Stickers':'Packaging','Boxes':'Packaging','Decorations':'Packaging','Other':'Packaging'};const seed=()=>({items:[],recipes:[],orders:[],events:[],categories:defaults.map((name,j)=>({id:'c'+j,name,emoji:icons[j]})),logo:'',log:[]});let d;try{d=JSON.parse(localStorage.getItem(NEW))}catch{}if(!d){let old;try{old=JSON.parse(localStorage.getItem(KEY))}catch{}d=seed();if(old&&Array.isArray(old.items)){d.items=olalpha(d.items).map(i=>({...i,type:oldNames[i.type]||i.type,restock:i.restock??Math.max(1,i.min||1)}));d.recipes=old.recipes||[];d.orders=(old.orders||[]).map(o=>({...o,lines:o.lines||[],status:o.status||'Planned',deducted:o.deducted||false}));d.log=old.log||[]}}d.categories ||=seed().categories;d.events ||= [];d.orders ||= [];d.recipes ||= [];d.items ||= [];d.log ||= [];d.logo ||= '';d.freezer ||= [];d.shapes ||= [];d.freezerEnabled ??= true;const $=id=>document.getElementById(id),esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])),id=()=>Math.random().toString(36).slice(2)+Date.now().toString(36),catName=i=>d.categories.find(c=>c.id===i.type)?.name||i.type||'Uncategorized',catOf=i=>d.categories.find(c=>c.id===i.type)||d.categories.find(c=>c.name===i.type),itemName=x=>d.items.find(i=>i.id===x)?.name||'Deleted supply',flavorName=x=>d.recipes.find(r=>r.id===x)?.name||'Deleted flavor';let tab='stock',selected=null;function save(){try{localStorage.setItem(NEW,JSON.stringify(d))}catch(e){alert('Phone storage is full. Export a backup; consider using a smaller logo.')}}function modal(title,body){$('dialogTitle').textContent=title;$('dialogBody').innerHTML=body;$('dialog').showModal()}function done(){save();$('dialog').close();render()}function go(t){tab=t;selected=null;render()}function render(){$('nav').innerHTML=[['stock','Stock'],['flavors','Flavors'],['orders','Orders'],['events','Events'],['freezer','Freezer'],['shopping','Shopping'],['settings','Settings']].map(([t,l])=>`<button class="${tab===t?'sel':''}" onclick="go('${t}')">${l}</button>`).join('');document.querySelectorAll('section').forEach(s=>s.classList.toggle('show',s.id===tab));$('brandImage').src=d.logo||'./icons/icon-192.png';renderStock();renderFlavors();renderPlans('orders');renderPlans('events');renderFreezer();renderShopping();renderSettings()}
 function renderStock(){let cats=alpha(d.categories);let html=selected?`<div class="row"><button class="alt" onclick="selected=null;render()">← Categories</button><button onclick="editItem('', '${selected}')">+ Supply</button></div><h2>${esc(cats.find(c=>c.id===selected)?.name||'Stock')}</h2>`:`<div class="row"><h2>My Stock</h2><button onclick="editItem()">+ Supply</button></div><p class="muted">Choose a category to view and update your supplies.</p><div class="grid">${cats.map(c=>`<button class="tile" onclick="selected='${c.id}';render()"><strong>${esc(c.name)}</strong><small>${d.items.filter(i=>catOf(i)?.id===c.id).length} supplies →</small></button>`).join('')}</div>`;if(selected){let list=alpha(d.items.filter(i=>catOf(i)?.id===selected));html+=`<div class="card">${list.length?list.map(i=>`<div class="item"><div class="row"><strong>${esc(i.name)}</strong><span class="pill">${Number(i.qty)} ${esc(i.unit||'packs')}</span></div><div class="small muted">Low at ${i.min||0} · Restock target ${i.restock??i.min??0} ${esc(i.unit||'packs')}</div><div class="actions"><button class="alt" onclick="adjust('${i.id}',1)">+ Add</button><button class="alt" onclick="adjust('${i.id}',-1)">− Use</button><button class="alt" onclick="editItem('${i.id}')">Edit</button></div></div>`).join(''):'<p class="muted">No supplies here yet.</p>'}</div>`} $('stock').innerHTML=html}
 function editItem(x='',cat=''){let i=d.items.find(i=>i.id===x)||{name:'',type:cat||d.categories[0]?.id,qty:0,min:1,restock:3,unit:'pack'};modal(x?'Edit stock':'Add stock',`<form onsubmit="saveItem(event,'${x}')"><label>Supply name</label><input name="name" required value="${esc(i.name)}"><label>Category</label><select name="type">${alpha(d.categories).map(c=>`<option value="${c.id}" ${catOf(i)?.id===c.id?'selected':''}>${esc(c.name)}</option>`).join('')}</select><div class="formgrid"><div><label>Quantity in stock</label><input name="qty" type="number" step="any" min="0" value="${i.qty}" required></div><div><label>Unit</label><input name="unit" value="${esc(i.unit||'pack')}"></div><div><label>Low stock alert at</label><input name="min" type="number" min="0" step="1" value="${i.min||0}"></div><div><label>Restock target</label><input name="restock" type="number" min="0" step="1" value="${i.restock??i.min??0}"></div></div><div class="actions"><button>Save supply</button>${x?`<button type="button" class="danger" onclick="removeItem('${x}')">Delete</button>`:''}</div></form>`)}function saveItem(e,x){e.preventDefault();let f=e.target,z={id:x||id(),name:f.elements.name.value.trim(),type:f.elements.type.value,qty:+f.elements.qty.value,unit:f.elements.unit.value||'pack',min:+f.elements.min.value,restock:+f.elements.restock.value};let old=d.items.find(i=>i.id===x);if(old)Object.assign(old,z);else d.items.push(z);done()}function removeItem(x){if(!confirm('Delete this supply? Existing flavors may reference it.'))return;d.items=d.items.filter(i=>i.id!==x);done()}function adjust(x,sign){let i=d.items.find(i=>i.id===x),v=prompt(`${sign>0?'Add':'Use'} how many ${i.unit||'packs'} of ${i.name}?`,'1');if(v===null)return;let n=Number(v);if(!Number.isFinite(n)||n<=0||sign<0&&i.qty<n){alert('Enter a valid whole number within available stock.');return}i.qty=+(i.qty+sign*n).toFixed(5);save();render()}
@@ -1466,5 +1466,66 @@ function renderProduction(){
 }
 const productionPreviousRender=render;
 render=function(){productionPreviousRender();renderProduction();document.querySelectorAll('main section').forEach(section=>section.classList.toggle('show',section.id===tab))};
+
+
+/* Phase 2 / Step 5: optional beginner setup guide; no demo data or inventory changes. */
+popExtraTabs.push(['guide','Getting Started']);
+d.settings ||= {};
+function setupSteps(){
+ return [
+  {name:'Add your first supply',description:'Record ingredients and packaging in My Stock, including their units and quantities.',done:d.items.some(i=>!isShapeStockItem(i)),target:'stock',action:'Open Stock'},
+  {name:'Set up a popper shape',description:'Save a shape and its cake-pop yield. Assign its matching stick, if needed.',done:(d.shapes||[]).some(s=>Number(s.yield)>0),target:'stock',action:'Open Shapes'},
+  {name:'Create a flavor recipe',description:'Add a flavor and the quantities of ingredients used for one batch.',done:(d.recipes||[]).length>0,target:'flavors',action:'Open Flavors'},
+  {name:'Make a customer estimate',description:'Quote the flavor, shape, quantity and selling price. You can convert a saved draft into an order.',done:(d.customerQuotes||[]).length>0,target:'quotes',action:'Open Quotes'},
+  {name:'Plan an order or event',description:'Set a due date, flavors, shapes and quantities. Stock is deducted only when production starts.',done:(d.orders||[]).length+(d.events||[]).length>0,target:'orders',action:'Open Orders'},
+  {name:'Save a backup',description:'In Settings, download a backup after entering your real information. Store the backup somewhere safe.',done:!!d.settings.beginnerBackupConfirmed,target:'settings',action:'Open Settings'}
+ ];
+}
+function setupGo(index){
+ const step=setupSteps()[index];if(!step)return;
+ if(index===1){
+  const shape=shapeCategories()?.[0];
+  go('stock');
+  if(shape){selected=shape.id;render()}
+  return;
+ }
+ go(step.target);
+}
+function setupBackupConfirmed(checked){d.settings.beginnerBackupConfirmed=!!checked;save();render()}
+function setupHideOnHome(hide){d.settings.hideSetupHome=!!hide;save();render()}
+function renderGuide(){
+ const root=$('guide');if(!root)return;
+ const steps=setupSteps(),done=steps.filter(s=>s.done).length;
+ root.innerHTML='<div class="row wrap"><div><h2>Getting Started</h2><p class="muted small">A simple checklist to learn PopStock at your own pace.</p></div><span class="pill">'+done+' of '+steps.length+' complete</span></div>'+
+ '<div class="notice">This guide uses your current PopStock data. Nothing is reset, and steps can be completed in any order. It is okay to skip a feature you do not need.</div>'+
+ steps.map((s,i)=>'<div class="card"><div class="row" style="align-items:flex-start"><div><strong>'+(s.done?'Complete: ':'Step '+(i+1)+': ')+esc(s.name)+'</strong><p class="muted small">'+esc(s.description)+'</p></div><span class="pill">'+(s.done?'Done':'Optional')+'</span></div>'+
+ (i===5?'<label class="guide-backup"><input type="checkbox" data-setup-backup '+(s.done?'checked':'')+'> I downloaded and safely saved a backup</label>':'')+
+ '<div class="actions"><button type="button" class="alt" data-setup-target="'+i+'">'+esc(s.action)+'</button></div></div>').join('')+
+ '<div class="card"><h3>Home screen reminder</h3><label><input type="checkbox" data-setup-hide style="width:auto" '+(d.settings.hideSetupHome?'checked':'')+'> Hide Getting Started on Home</label><p class="muted small">You can always reopen the guide from More.</p></div>';
+ root.querySelectorAll('[data-setup-target]').forEach(button=>button.addEventListener('click',()=>setupGo(Number(button.dataset.setupTarget))));
+ root.querySelector('[data-setup-backup]')?.addEventListener('change',e=>setupBackupConfirmed(e.target.checked));
+ root.querySelector('[data-setup-hide]')?.addEventListener('change',e=>setupHideOnHome(e.target.checked));
+}
+const beginnerHomeBefore=renderHome;
+renderHome=function(){
+ beginnerHomeBefore();
+ const root=$('home');if(!root||d.settings.hideSetupHome)return;
+ const steps=setupSteps(),done=steps.filter(s=>s.done).length,card=document.createElement('div');card.className='card';
+ card.innerHTML='<div class="row wrap"><div><h3>Getting Started</h3><p class="muted small">'+(done===steps.length?'Setup checklist complete. Review it anytime.':'Follow the setup guide at your own pace.')+'</p></div><span class="pill">'+done+' / '+steps.length+'</span></div>'+
+ '<div class="actions"><button type="button" data-open-setup>Open setup guide</button><button type="button" class="alt" data-hide-setup>Hide on Home</button></div>';
+ root.append(card);
+ card.querySelector('[data-open-setup]').addEventListener('click',()=>go('guide'));
+ card.querySelector('[data-hide-setup]').addEventListener('click',()=>setupHideOnHome(true));
+};
+const beginnerSettingsBefore=renderSettings;
+renderSettings=function(){
+ beginnerSettingsBefore();
+ const root=$('settings');if(!root)return;
+ const card=document.createElement('div');card.className='card';
+ card.innerHTML='<h3>Getting Started Guide</h3><p class="muted small">Revisit your setup checklist whenever you need help with PopStock.</p><button type="button" data-open-guide>Open setup guide</button>';
+ root.append(card);card.querySelector('[data-open-guide]').addEventListener('click',()=>go('guide'));
+};
+const beginnerRenderBefore=render;
+render=function(){beginnerRenderBefore();renderGuide();document.querySelectorAll('main section').forEach(section=>section.classList.toggle('show',section.id===tab))};
 
 save();render();if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
