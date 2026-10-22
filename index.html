@@ -633,4 +633,72 @@ exportEvents=function(){
  ...all.map(p=>{const rows=p.report.rows||[],made=rows.reduce((n,r)=>n+num(r.made),0),sold=rows.reduce((n,r)=>n+num(r.sold),0),top=[...rows].sort((a,b)=>b.sold-a.sold)[0];return [p.name,p.date,p.location||'',p.eventCategory||'',p.report.sales,p.vendorFeeEnabled?p.vendorFee:0,expenseTotal(p.expenses),p.report.sales-eventExpenses(p),made,sold,made?(sold/made*100).toFixed(1):0,p.report.topFlavor||(top?flavorName(top.flavor):''),p.report.historical?'Yes':'No']})]);
 };
 
+
+d.costLibrary ||= [];d.customerQuotes ||= [];
+function libraryRows(){return d.items.filter(i=>!isShapeStockItem(i)).map(i=>({id:'stock:'+i.id,name:i.name,category:catName(i),price:Number(i.packageCost)||0,size:Number(i.packageSize)||1,unit:i.packageUnit||i.unit||'each',stockId:i.id})).concat(d.costLibrary)}
+function openLibraryItem(x=''){
+ if(x.startsWith('stock:')){editItem(x.slice(6));return}
+ const v=d.costLibrary.find(i=>i.id===x)||{};
+ modal(x?'Edit cost-only item':'New cost-only item','<form onsubmit="saveLibraryItem(event,\''+x+'\')"><p class="notice">Pricing only. This does not create or deduct inventory.</p><label>Name</label><input required name="name" value="'+esc(v.name||'')+'"><label>Category</label><input name="category" value="'+esc(v.category||'Ingredients')+'"><div class="formgrid"><div><label>Purchase price ($)</label><input required type="number" step="0.01" min="0.01" name="price" value="'+esc(v.price??'')+'"></div><div><label>Amount purchased</label><input required name="size" placeholder="16 or 1/2" value="'+esc(v.sizeText||v.size||'')+'"></div></div><label>Purchase unit</label><input required name="unit" placeholder="oz, cup, fl oz, gallon, each" value="'+esc(v.unit||'')+'"><button>Save cost</button>'+(x?'<button type="button" class="danger" onclick="removeLibraryItem(\''+x+'\')">Delete</button>':'')+'</form>');
+}
+function saveLibraryItem(e,x){e.preventDefault();const f=e.target,size=recipeAmount(f.elements.size.value),price=Number(f.elements.price.value);if(!(size>0&&price>0)){alert('Enter a positive price and amount.');return}const v={id:x||id(),name:f.elements.name.value.trim(),category:f.elements.category.value.trim()||'Other',price,size,sizeText:f.elements.size.value.trim(),unit:f.elements.unit.value.trim()};const old=d.costLibrary.find(i=>i.id===x);if(old)Object.assign(old,v);else d.costLibrary.push(v);done()}
+function removeLibraryItem(x){if(!confirm('Delete this cost-only price?'))return;d.costLibrary=d.costLibrary.filter(i=>i.id!==x);done()}
+function libraryIngredientCost(p){
+ const options=libraryRows().filter(i=>p.id&&i.stockId===p.id||normal(i.name)===normal(p.name));
+ const price=options.find(i=>i.price>0&&i.size>0&&convertedAmount(1,p.unit,i.unit)!==null);
+ if(price){const q=convertedAmount(Number(p.qty)||0,p.unit,price.unit);return {cost:q*price.price/price.size,unknown:false}}
+ const amount=convertedAmount(Number(p.qty)||0,p.unit,p.recipeCostUnit||'');
+ if(amount!==null&&Number(p.recipeCostPrice)>0&&Number(p.recipeCostSize)>0)return {cost:amount*Number(p.recipeCostPrice)/Number(p.recipeCostSize),unknown:false};
+ return {cost:0,unknown:true};
+}
+costPart=libraryIngredientCost;
+function libraryDisplay(){
+ const target=$('costList');if(!target)return;
+ const query=normal($('costSearch')?.value);
+ const rows=libraryRows().filter(v=>normal(v.name+' '+v.category).includes(query)).sort((a,b)=>a.name.localeCompare(b.name));
+ target.innerHTML=rows.map(v=>'<div class="item row"><div><strong>'+esc(v.name)+'</strong><div class="small muted">'+esc(v.category)+' · '+(v.stockId?'My Stock':'Cost only')+' · '+(v.price>0?money(v.price)+' / '+fmt(v.size)+' '+esc(v.unit):'Missing price')+'</div></div><button type="button" class="alt" onclick="openLibraryItem(\''+v.id+'\')">Edit</button></div>').join('')||'<p class="muted small">No matching prices.</p>';
+}
+function newCustomerQuote(x=''){
+ const q=d.customerQuotes.find(v=>v.id===x)||{},s=d.quoteSettings||{hours:2,rate:20,other:0,margin:40};
+ modal('Customer estimate','<form onsubmit="saveCustomerEstimate(event,\''+x+'\')"><p class="notice">Saved quotes are separate from orders and do not change stock.</p><label>Customer name</label><input name="customer" value="'+esc(q.customer||'')+'"><label>Flavor</label><select id="quoteFlavor" name="flavor" onchange="quotePreview()">'+d.recipes.map(v=>'<option value="'+v.id+'" '+((q.flavor||d.recipes[0]?.id)===v.id?'selected':'')+'>'+esc(v.name)+'</option>').join('')+'</select><label>Shape</label><select id="quoteShape" name="shape" onchange="quotePreview()">'+d.shapes.map(v=>'<option value="'+v.id+'" '+((q.shape||d.shapes[0]?.id)===v.id?'selected':'')+'>'+esc(v.name)+' ('+v.yield+' pops/batch)</option>').join('')+'</select><div class="formgrid">'+
+ '<div><label>Number of pops</label><input id="quoteCount" name="count" type="number" step="1" min="1" value="'+(q.count||24)+'" oninput="quotePreview()"></div><div><label>Your price per pop ($)</label><input id="quotePrice" name="price" type="number" step="0.01" min="0" value="'+(q.price??3.5)+'" oninput="quotePreview()"></div>'+
+ '<div><label>Hours per batch</label><input id="quoteHours" name="hours" type="number" step="0.25" min="0" value="'+(q.hours??s.hours)+'" oninput="quotePreview()"></div><div><label>Hourly rate ($)</label><input id="quoteRate" name="rate" type="number" step="0.01" min="0" value="'+(q.rate??s.rate)+'" oninput="quotePreview()"></div>'+
+ '<div><label>Other costs per batch ($)</label><input id="quoteOther" name="other" type="number" step="0.01" min="0" value="'+(q.other??s.other)+'" oninput="quotePreview()"></div><div><label>Target margin (%)</label><input id="quoteMargin" name="margin" type="number" step="1" min="0" max="95" value="'+(q.margin??s.margin)+'" oninput="quotePreview()"></div></div>'+
+ '<div id="quoteResult" class="notice"></div><label>Notes</label><textarea name="notes">'+esc(q.notes||'')+'</textarea><button>Save quote draft</button>'+(x?'<button type="button" class="danger" onclick="deleteCustomerEstimate(\''+x+'\')">Delete</button>':'')+'</form>');
+ quotePreview();
+}
+function quoteNumbers(){
+ const recipe=d.recipes.find(v=>v.id===$('quoteFlavor')?.value),shape=d.shapes.find(v=>v.id===$('quoteShape')?.value),count=Number($('quoteCount')?.value),price=Number($('quotePrice')?.value),hours=Number($('quoteHours')?.value),rate=Number($('quoteRate')?.value),other=Number($('quoteOther')?.value),margin=Number($('quoteMargin')?.value);
+ if(!recipe||!shape||!(shape.yield>0)||!Number.isInteger(count)||count<=0||[price,hours,rate,other,margin].some(v=>!Number.isFinite(v)||v<0)||margin>95)return null;
+ const batches=Math.ceil(count/shape.yield),parts=recipeParts(recipe),costs=parts.map(p=>({...costPart(p),name:p.name})),missing=costs.filter(v=>v.unknown).map(v=>v.name),ingredientCost=costs.reduce((n,v)=>n+v.cost,0)*batches;
+ let packagingCost=0;if(typeof popPackNeeds==='function')for(const entry of popPackNeeds([{shape:shape.id,count}])){
+  const i=entry.supply;if(i.packageCost>0&&i.packageSize>0)packagingCost+=entry.required*i.packageCost/i.packageSize;else missing.push(i.name+' (packaging)');
+ }
+ const total=ingredientCost+packagingCost+(hours*rate+other)*batches,suggested=total/count/(1-margin/100);
+ return {recipe,shape,count,price,hours,rate,other,margin,batches,total,suggested,missing};
+}
+function quotePreview(){
+ const root=$('quoteResult');if(!root)return;const v=quoteNumbers();if(!v){root.textContent='Choose a recipe and shape, and enter valid pricing values.';return}
+ root.innerHTML='<div class="formgrid"><div><strong>Your selling price</strong><h2>'+money(v.count*v.price)+'</h2><small>'+money(v.price)+' per pop</small></div><div><strong>PopStock suggested price</strong><h2>'+money(v.count*v.suggested)+'</h2><small>'+money(v.suggested)+' per pop</small></div></div><p>Production cost estimate: '+money(v.total)+' · '+v.batches+' batches</p>'+(v.missing.length?'<p class="bad">Incomplete: missing costs for '+v.missing.map(esc).join(', ')+'. Suggested price may be too low.</p>':'<p class="small">All recorded ingredient and configured packaging prices found.</p>');
+}
+function saveCustomerEstimate(e,x){
+ e.preventDefault();const v=quoteNumbers();if(!v)return;
+ if(v.missing.length&&!confirm('Costs are missing. Save this as an incomplete quote draft?'))return;
+ const f=e.target,entry={id:x||id(),customer:f.elements.customer.value.trim(),flavor:v.recipe.id,shape:v.shape.id,count:v.count,price:v.price,hours:v.hours,rate:v.rate,other:v.other,margin:v.margin,suggested:v.suggested,totalCost:v.total,missing:v.missing,notes:f.elements.notes.value,updatedAt:new Date().toISOString()};
+ const old=d.customerQuotes.find(i=>i.id===x);if(old)Object.assign(old,entry);else d.customerQuotes.push(entry);
+ d.quoteSettings={hours:v.hours,rate:v.rate,other:v.other,margin:v.margin};done();
+}
+function deleteCustomerEstimate(x){if(!confirm('Delete this quote draft?'))return;d.customerQuotes=d.customerQuotes.filter(i=>i.id!==x);done()}
+const quoteBeforeBusiness=renderBusiness;
+renderBusiness=function(){
+ quoteBeforeBusiness();const root=$('business');if(!root)return;
+ const block=document.createElement('div');block.className='card';
+ block.innerHTML='<h3>Cost Library</h3><p class="muted small">Reuse prices across flavors. My Stock supplies appear automatically; add cost-only ingredients without adding inventory.</p><div class="actions"><button type="button" onclick="openLibraryItem()">+ Cost-only item</button><button type="button" class="alt" onclick="newCustomerQuote()">Instant quote</button></div><input id="costSearch" placeholder="Search saved costs..." oninput="libraryDisplay()"><div id="costList"></div>';
+ root.insertBefore(block,root.firstChild);libraryDisplay();
+ const quotes=document.createElement('div');quotes.className='card';quotes.innerHTML='<h3>Customer quote drafts</h3><button onclick="newCustomerQuote()">+ New estimate</button>'+(d.customerQuotes.map(v=>'<div class="item row"><div><strong>'+esc(v.customer||'Untitled')+'</strong><div class="muted small">'+esc(flavorName(v.flavor))+' · '+v.count+' pops · Your total '+money(v.count*v.price)+' · Suggested '+money(v.count*v.suggested)+(v.missing?.length?' · Incomplete':'')+'</div></div><button type="button" class="alt" onclick="newCustomerQuote(\''+v.id+'\')">Edit</button></div>').join('')||'<p class="muted small">No quote drafts saved yet.</p>');
+ block.insertAdjacentElement('afterend',quotes);
+};
+const quoteBeforeFlavors=renderFlavors;
+renderFlavors=function(){quoteBeforeFlavors();$('flavors')?.insertAdjacentHTML('afterbegin','<div class="actions"><button type="button" class="alt" onclick="go(\'business\');newCustomerQuote()">Instant quote</button></div>')};
+
 save();render();if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
