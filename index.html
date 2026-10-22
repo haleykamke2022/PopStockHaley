@@ -735,4 +735,100 @@ restore=async function(el){try{
  alert('Restore completed. Existing data on this device was replaced.');
  }catch(err){alert('Restore cancelled: '+err.message)}finally{if(el)el.value=''}};
 
+
+/* Phase 1: consistent costs and safer stock accounting. */
+function p1Cost(p){
+ const stock=p.id?d.items.filter(i=>i.id===p.id):d.items.filter(i=>normal(i.name)===normal(p.name));
+ const candidates=stock.filter(i=>!isShapeStockItem(i)).map(i=>({price:Number(i.packageCost),size:Number(i.packageSize),unit:i.packageUnit||i.unit,source:'My Stock'}))
+  .concat(d.costLibrary.filter(i=>normal(i.name)===normal(p.name)).map(i=>({price:Number(i.price),size:Number(i.size),unit:i.unit,source:'Cost Library'})))
+  .concat([{price:Number(p.recipeCostPrice),size:Number(p.recipeCostSize),unit:p.recipeCostUnit,source:'Recipe-only'}]);
+ for(const c of candidates){if(!(c.price>0&&c.size>0))continue;const amount=convertedAmount(Number(p.qty)||0,p.unit,c.unit);if(amount!==null)return {cost:amount*c.price/c.size,unknown:false,source:c.source}}
+ return {cost:0,unknown:true,reason:'No saved price or compatible package measurement'};
+}
+costPart=p1Cost;
+flavorCost=function(r){const results=recipeParts(r).map(p=>({...p,...p1Cost(p)}));return {cost:results.reduce((s,p)=>s+p.cost,0),unknown:results.filter(p=>p.unknown).length,details:results}};
+const p1OldPricing=updatePricePreview;
+updatePricePreview=function(){p1OldPricing();const r=d.recipes.find(v=>v.id===$('priceFlavor')?.value),out=$('priceResult');if(!r||!out)return;
+ out.insertAdjacentHTML('beforeend','<h4>Ingredient costs</h4>'+flavorCost(r).details.map(v=>'<div class="row small"><span>'+esc(v.name)+'</span><span>'+(v.unknown?'<span class="bad">Missing or incompatible price</span>':money(v.cost)+' · '+esc(v.source))+'</span></div>').join(''));
+};
+function p1PackNeeds(lines,keys){
+ const map=new Map();
+ for(const l of lines||[]){const shape=d.shapes.find(s=>s.id===l.shape);if(!shape)continue;
+ for(const key of keys){if(!shape[key])continue;const item=d.items.find(i=>i.id===shape[key]);if(!item)continue;
+  const current=map.get(item.id)||{item,pieces:0};current.pieces+=Number(l.count)||0;map.set(item.id,current)}}
+ return [...map.values()];
+}
+function p1PackAmounts(entries){
+ const map=new Map(),issues=[];
+ for(const v of entries){const qty=bulkConvertToStock(v.pieces,'each',v.item);
+  if(qty===null){issues.push(v.item.name+': track as "each", or specify the package size in "each".');continue}
+  const row=map.get(v.item.id)||{item:v.item,qty:0};row.qty+=qty;map.set(v.item.id,row)}
+ for(const v of map.values())if(Number(v.item.qty)+1e-8<v.qty)issues.push(v.item.name+': need '+fmt(v.qty)+' '+v.item.unit+', have '+fmt(Number(v.item.qty)||0));
+ return {map,issues};
+}
+function p1Commit(change){
+ const before=JSON.stringify(d);
+ try{change();localStorage.setItem(NEW,JSON.stringify(d));render();return true}
+ catch(err){d=JSON.parse(before);alert('Unable to save inventory changes. Original values were retained. '+err.message);render();return false}
+}
+progress=function(kind,x){
+ const p=d[kind]?.find(v=>v.id===x);if(!p||p.status!=='Planned')return;
+ if(!p.lines?.length||p.lines.some(l=>!d.recipes.some(r=>r.id===l.flavor)||!d.shapes.some(s=>s.id===l.shape)||!Number.isInteger(Number(l.count))||Number(l.count)<=0)){alert('Each planned line needs a flavor, shape, and positive quantity.');return}
+ const issues=[],alloc=p.allocations||[];
+ for(const a of alloc){const fr=d.freezer.find(i=>i.id===a.freezer);if(!fr||!(Number(a.qty)>0)||Number(fr.qty)+1e-8<Number(a.qty))issues.push('Reserved freezer stock is unavailable');}
+ const rows=popIngredientsOnlyCheck(freshLines(p)),ingredient=new Map();
+ for(const r of rows){if(!r.supply){issues.push('Missing ingredient stock: '+r.name);continue}
+  const v=ingredient.get(r.supply.id)||{item:r.supply,qty:0};v.qty+=r.required;ingredient.set(r.supply.id,v)}
+ for(const v of ingredient.values())if(Number(v.item.qty)+1e-8<v.qty)issues.push(v.item.name+': need '+fmt(v.qty)+' '+v.item.unit+', have '+fmt(Number(v.item.qty)||0));
+ const pack=p1PackAmounts(p1PackNeeds(p.lines,['popStick','popBag','popLabel']));issues.push(...pack.issues);
+ if(issues.length){alert('Before starting, fix:\n'+issues.join('\n'));return}
+ if(!confirm('Start production and deduct recipe ingredients plus reserved freezer stock? Packaging will be deducted after you enter actual quantities.'))return;
+ p1Commit(()=>{const used={};for(const v of ingredient.values()){v.item.qty=+(Number(v.item.qty)-v.qty).toFixed(8);used[v.item.id]=v.qty}
+ for(const a of alloc)d.freezer.find(v=>v.id===a.freezer).qty-=Number(a.qty);
+ p.status='In progress';p.deducted=true;p.used=used;p.usedFreezer=alloc;
+ d.log.push({type:'Plan started',kind,id:x,date:new Date().toISOString(),used});});
+};
+popFinishOrder=function(x){
+ const p=d.orders.find(v=>v.id===x);if(!p||p.status!=='In progress')return;
+ const rows=p.lines.map((l,k)=>'<div class="pair p1-row"><strong>'+esc(flavorName(l.flavor))+' · '+esc(shapeName(l.shape))+'</strong><p class="small muted">Ordered '+l.count+'</p><div class="formgrid"><div><label>Actually made (sticks)</label><input class="p1-made" type="number" min="0" step="1" value="'+(p.actualCounts?.[k]??l.count)+'" oninput="if(!this.closest(\'.p1-row\').dataset.edited)this.closest(\'.p1-row\').querySelector(\'.p1-packed\').value=this.value"></div><div><label>Actually packaged (bags + labels)</label><input class="p1-packed" type="number" min="0" step="1" value="'+(p.packagedCounts?.[k]??l.count)+'" oninput="this.closest(\'.p1-row\').dataset.edited=\'1\'"></div></div></div>').join('');
+ modal('Finish order — actual production','<form onsubmit="popSaveActual(event,\''+x+'\')"><p class="notice">Count sticks for pops made, and bags and stickers for pops packaged. Any new full recipe batches required for extras are also checked.</p>'+rows+'<button>Review and finish</button></form>');
+};
+popSaveActual=function(e,x){
+ e.preventDefault();const p=d.orders.find(v=>v.id===x);if(!p||p.status!=='In progress')return;
+ const nodes=[...e.target.querySelectorAll('.p1-row')],made=nodes.map(n=>Number(n.querySelector('.p1-made').value)),packed=nodes.map(n=>Number(n.querySelector('.p1-packed').value));
+ if(made.length!==p.lines.length||made.some((v,k)=>!Number.isInteger(v)||v<0||!Number.isInteger(packed[k])||packed[k]<0||packed[k]>v)){alert('Enter whole counts. Packaged cannot be greater than made.');return}
+ const madeLines=p.lines.map((l,k)=>({...l,count:made[k]})),packagedLines=p.lines.map((l,k)=>({...l,count:packed[k]}));
+ const packaging=p1PackAmounts(p1PackNeeds(madeLines,['popStick']).concat(p1PackNeeds(packagedLines,['popBag','popLabel'])));
+ const issues=[...packaging.issues],additional=new Map();
+ for(const r of popIngredientsOnlyCheck(madeLines)){if(!r.supply){issues.push('Missing ingredient '+r.name);continue}
+  const delta=Math.max(0,r.required-(Number(p.used?.[r.supply.id])||0));if(delta>1e-8){const row=additional.get(r.supply.id)||{item:r.supply,qty:0};row.qty+=delta;additional.set(r.supply.id,row)}}
+ const combined=new Map();for(const v of [...additional.values(),...packaging.map.values()]){const r=combined.get(v.item.id)||{item:v.item,qty:0};r.qty+=v.qty;combined.set(v.item.id,r)}
+ for(const v of combined.values())if(Number(v.item.qty)+1e-8<v.qty)issues.push(v.item.name+': need '+fmt(v.qty)+' '+v.item.unit+', have '+fmt(Number(v.item.qty)||0));
+ if(issues.length){alert('Cannot finish:\n'+[...new Set(issues)].join('\n'));return}
+ const extras=made.reduce((a,n,k)=>a+Math.max(0,n-Number(p.lines[k].count)),0),fewer=made.reduce((a,n,k)=>a+Math.max(0,Number(p.lines[k].count)-n),0);
+ if(!confirm('Made '+made.reduce((a,b)=>a+b,0)+'; packaged '+packed.reduce((a,b)=>a+b,0)+'; '+extras+' extra and '+fewer+' fewer.\nDeduct actual supplies and complete the order?'))return;
+ const ok=p1Commit(()=>{const packagingUsed={},extraIngredientsUsed={};
+ for(const v of combined.values())v.item.qty=+(Number(v.item.qty)-v.qty).toFixed(8);
+ for(const v of packaging.map.values())packagingUsed[v.item.id]=v.qty;
+ for(const v of additional.values()){extraIngredientsUsed[v.item.id]=v.qty;p.used[v.item.id]=(Number(p.used[v.item.id])||0)+v.qty}
+ Object.assign(p,{actualCounts:made,packagedCounts:packed,extraPops:extras,fewerPops:fewer,packagingUsed,extraIngredientsUsed,status:'Completed'});
+ d.log.push({type:'Order completed',kind:'orders',id:x,date:new Date().toISOString(),actualCounts:made,packagedCounts:packed,packagingUsed,extraIngredientsUsed});});
+ if(ok)$('dialog')?.close();
+};
+const p1RenderSettings=renderSettings;
+renderSettings=function(){p1RenderSettings();const i=$('restore');i?.closest('.card')?.insertAdjacentHTML('beforeend','<p class="muted small">Restore first previews the file and asks you to download a safety backup of this device. A restore replaces, rather than merges, data.</p>')};
+restore=async function(input){
+ const file=input.files?.[0];if(!file)return;
+ try{
+  if(file.size>15000000)throw Error('Backup file is too large.');
+  const candidate=JSON.parse(await file.text());
+  if(!candidate||typeof candidate!=='object'||!Array.isArray(candidate.items)||!Array.isArray(candidate.recipes)||!Array.isArray(candidate.orders)||!Array.isArray(candidate.events||[])||!Array.isArray(candidate.categories||[]))throw Error('File is not a valid PopStock backup.');
+  if(!confirm('Backup contains '+candidate.items.length+' stock items, '+candidate.recipes.length+' recipes, '+candidate.orders.length+' orders, and '+(candidate.events||[]).length+' events.\n\nRestoring will REPLACE data on this device.\n\nDownload your current safety backup first?'))return;
+  backup();
+  if(!confirm('Please verify that your current backup downloaded into Files/Downloads before continuing. Replace device data now?'))return;
+  const next={...seed(),...candidate};localStorage.setItem(NEW,JSON.stringify(next));d=next;render();alert('Backup restored.');
+ }catch(err){alert('Restore stopped without changing saved data: '+err.message)}
+ finally{input.value=''}
+};
+
 save();render();if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
