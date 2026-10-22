@@ -2566,4 +2566,55 @@ renderSettings=function(){
  root.appendChild(card);psRenderLaunchChecks();
 };
 
+
+/* Inventory Quick Start: additive batch entry for established bakers. */
+function psQuickRow(){
+ const row=document.createElement('div');row.className='pair ps-quick-row';
+ row.innerHTML='<div class="formgrid">'+
+ '<div><label>Supply name</label><input name="name" required maxlength="100" placeholder="Vanilla almond bark"></div>'+
+ '<div><label>Category</label><select name="category">'+alpha(d.categories.filter(c=>!isShapeCategory(c))).map(c=>'<option value="'+esc(c.id)+'">'+esc(c.name)+'</option>').join('')+'</select></div>'+
+ '<div><label>Quantity in stock</label><input name="qty" type="number" min="0" step="any" value="0" required></div>'+
+ '<div><label>Stock unit</label><input name="unit" value="pack" required placeholder="pack"></div>'+
+ '<div><label>Price per package ($)</label><input name="cost" type="number" min="0" step="0.01" value="0" required></div>'+
+ '<div><label>Package size</label><input name="size" type="number" min="0.000001" step="any" value="1" required></div>'+
+ '<div><label>Package measurement</label><input name="measure" value="each" required placeholder="oz, g, each"></div>'+
+ '</div><button type="button" class="alt" data-remove-quick>Remove row</button>';
+ row.querySelector('[data-remove-quick]').addEventListener('click',()=>row.remove());
+ return row;
+}
+function psQuickOpen(){
+ if(!d.categories.some(c=>!isShapeCategory(c))){alert('Add a stock category in Settings first.');return}
+ modal('Inventory Quick Start','<p class="muted small">Add several existing supplies at once. These are new entries only; existing stock is never overwritten. Package prices are optional in practice: enter 0 when unknown and update later.</p><form id="psQuickForm" onsubmit="psQuickSave(event)"><div id="psQuickRows"></div><div class="actions"><button type="button" class="alt" id="psAddQuickRow">+ Another supply</button><button type="submit">Save all supplies</button></div></form>');
+ const holder=$('psQuickRows');
+ for(let i=0;i<3;i++)holder.appendChild(psQuickRow());
+ $('psAddQuickRow').addEventListener('click',()=>holder.appendChild(psQuickRow()));
+}
+function psQuickSave(e){
+ e.preventDefault();
+ const entries=[],seen=new Set();
+ for(const row of $('psQuickRows').querySelectorAll('.ps-quick-row')){
+  const f=row.querySelectorAll('[name]'),v=Object.fromEntries([...f].map(el=>[el.name,el.value.trim()]));
+  if(!v.name)continue;
+  const key=v.name.toLowerCase()+'|'+v.category;
+  if(seen.has(key)||d.items.some(i=>normal(i.name)===normal(v.name)&&i.type===v.category)){alert('Duplicate supply: '+v.name+'. Edit the existing supply instead.');return}
+  seen.add(key);
+  if(!d.categories.some(c=>c.id===v.category&&!isShapeCategory(c))||!Number.isFinite(+v.qty)||+v.qty<0||!Number.isFinite(+v.cost)||+v.cost<0||!(+v.size>0)||!v.unit||!v.measure){alert('Check quantity, category, units, price, and package size for '+v.name);return}
+  entries.push(v);
+ }
+ if(!entries.length){alert('Enter at least one supply name.');return}
+ if(!confirm('Add '+entries.length+' new supplies? Existing items will not be changed.'))return;
+ const ok=p1Commit(()=>{for(const v of entries)d.items.push({id:id(),name:v.name,type:v.category,qty:+v.qty,unit:v.unit,min:0,restock:0,restockEnabled:false,manualRestock:false,packageCost:+v.cost,packageSize:+v.size,packageUnit:v.measure})});
+ if(ok){$('dialog').close();go('stock')}
+}
+const psQuickStockBefore=renderStock;
+renderStock=function(){
+ psQuickStockBefore();
+ if(selected&&shapeCategories().some(c=>c.id===selected))return;
+ const root=$('stock');
+ const first=root?.querySelector('.row');if(!first)return;
+ if(first.querySelector('[data-quick-start]'))return;
+ const button=document.createElement('button');button.type='button';button.className='alt';button.dataset.quickStart='true';button.textContent='Inventory Quick Start';
+ button.addEventListener('click',psQuickOpen);first.appendChild(button);
+};
+
 save();render();psWelcomeFirstLaunch();if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
