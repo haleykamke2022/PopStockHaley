@@ -2434,4 +2434,23 @@ renderHome=function(){
  actions.appendChild(button);
 };
 
+
+/* Phase 5 Step 1: public beta orientation, no collection or mutation of business records. */
+const psBetaBeforeGuide=renderFeedback;
+renderFeedback=function(){
+ psBetaBeforeGuide();
+ const root=$('feedback');if(!root)return;
+ const intro=document.createElement('div');intro.className='card';
+ intro.innerHTML='<h3>Beta Tester Guide</h3>'+
+ '<p>Welcome to the PopStock public beta. Try the everyday tasks you would use in your cake-pop business, then tell us what works and what could improve.</p>'+
+ '<div class="notice"><strong>Before you begin</strong><p class="small">PopStock saves business information on this device. It does not sync between devices or accounts. Export a full backup before importing records or making major changes.</p></div>'+
+ '<details><summary><strong>1. Set up your business</strong></summary><p class="small">Open Getting Started in Settings, add a sample ingredient, popper shape, and flavor recipe. Try assigning popper categories.</p></details>'+
+ '<details><summary><strong>2. Try a sample order</strong></summary><p class="small">Create an estimate, convert it to an order, and explore the Production Tracker. Use sample information without including real customers\' private details.</p></details>'+
+ '<details><summary><strong>3. Explore daily workflows</strong></summary><p class="small">Test shopping lists, inventory restocking, event planning, and reports. Check whether calculations and navigation make sense.</p></details>'+
+ '<details><summary><strong>4. Protect your work</strong></summary><p class="small">Download a full data backup from Settings → Backups & Data. Use Backup File Check to inspect it without restoring.</p></details>'+
+ '<details><summary><strong>5. Send feedback</strong></summary><p class="small">Use the Help & Suggestions form below. Include the feature, what you expected, what happened, and steps to reproduce a problem. Do not include confidential customer or payment information.</p></details>'+
+ '<p class="muted small">Beta software may change. Testing is optional, and submitting feedback requires internet access.</p>';
+ root.insertBefore(intro,root.children[1]||null);
+};
+
 save();render();psWelcomeFirstLaunch();if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
