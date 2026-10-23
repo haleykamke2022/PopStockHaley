@@ -3064,4 +3064,104 @@ shopChecklistAction=function(action,key){
  return psNewIngredientChecklistAction(action,key);
 };
 
+
+/* Phase 6C: optional recipe weights and per-production dough history. */
+d.doughHistory ||= [];
+const ps6cBeforeEditFlavor=editFlavor;
+editFlavor=function(x=''){
+ ps6cBeforeEditFlavor(x);
+ const form=$('dialogBody')?.querySelector('form');if(!form)return;
+ const r=d.recipes.find(v=>v.id===x)||{};
+ const box=document.createElement('details');box.className='card';
+ box.innerHTML='<summary style="cursor:pointer"><strong>Optional finished dough weight</strong></summary>'+
+ '<p class="muted small">Enter the finished weight of ONE full recipe batch, after mix-ins. Leave blank to build a typical weight from actual production later.</p>'+
+ '<div class="formgrid"><div><label>Typical weight</label><input name="ps6cTypical" type="number" min="0.01" step="any" value="'+esc(r.typicalDoughOz?Number(r.typicalDoughOz).toFixed(2):'')+'"></div>'+
+ '<div><label>Unit</label><select name="ps6cUnit"><option value="oz">oz</option><option value="g">grams</option></select></div></div>'+
+ '<p class="muted small" id="ps6cHistorySummary"></p>';
+ form.querySelector('.actions')?.insertAdjacentElement('beforebegin',box);
+ const unit=box.querySelector('[name="ps6cUnit"]');
+ unit.value='oz';
+ const observations=(d.doughHistory||[]).filter(h=>h.recipeId===x&&!h.exclude&&h.batchCount>0).map(h=>h.weightOz/h.batchCount);
+ if(observations.length){
+  box.querySelector('#ps6cHistorySummary').textContent='Recorded average: '+(observations.reduce((a,b)=>a+b,0)/observations.length).toFixed(2)+' oz per full batch from '+observations.length+' production records.';
+ }
+ if(r.typicalDoughOz)box.open=true;
+};
+const ps6cBeforeSaveFlavor=saveFlavor;
+saveFlavor=function(e,x){
+ const input=e.target.elements.ps6cTypical,unit=e.target.elements.ps6cUnit;
+ const raw=input?.value?.trim()||'';
+ const ounces=raw?Number(raw)/(unit?.value==='g'?28.349523125:1):null;
+ if(raw&&!(ounces>0)){e.preventDefault();alert('Enter a positive dough weight or leave it blank.');return}
+ const before=new Set(d.recipes.map(r=>r.id));
+ ps6cBeforeSaveFlavor(e,x);
+ const r=x?d.recipes.find(v=>v.id===x):d.recipes.find(v=>!before.has(v.id));
+ if(r){if(ounces===null)delete r.typicalDoughOz;else r.typicalDoughOz=ounces;save();}
+};
+function ps6cRecipeWeight(recipeId){
+ const r=d.recipes.find(v=>v.id===recipeId);if(!r)return null;
+ const values=(d.doughHistory||[]).filter(h=>h.recipeId===recipeId&&!h.exclude&&h.batchCount>0&&h.weightOz>0).map(h=>h.weightOz/h.batchCount);
+ if(values.length)return {oz:values.reduce((a,b)=>a+b,0)/values.length,source:'Recorded batch average ('+values.length+')'};
+ return r.typicalDoughOz>0?{oz:r.typicalDoughOz,source:'Saved typical recipe weight'}:null;
+}
+function ps6cPieceWeight(shapeId,depth){
+ const shape=d.shapes.find(s=>s.id===shapeId);
+ if(!shape)return null;
+ const measured=Number(shape.doughWeightG);
+ if(measured>0)return {oz:measured/28.349523125,source:'Measured popper weight'};
+ const reference=ps6bReference(shape.popSize,depth);
+ return reference>0?{oz:reference,source:'Daisy Makes approximate reference'}:null;
+}
+const ps6cPreviousProductionCard=productionCard;
+productionCard=function(kind,p){
+ const original=ps6cPreviousProductionCard(kind,p);
+ const section='<details class="card"><summary style="cursor:pointer"><strong>Calculate My Yield</strong></summary>'+
+ '<p class="muted small">Select a flavor and shape from this production plan. Use a saved typical weight or enter the actual finished dough weight. Calculations never change order quantities or deduct inventory.</p>'+
+ '<div class="ps6c-host" data-kind="'+esc(kind)+'" data-id="'+esc(p.id)+'"></div></details>';
+ return original+section;
+};
+const ps6cPreviousRenderProduction=renderProduction;
+renderProduction=function(){
+ ps6cPreviousRenderProduction();
+ const root=$('production');if(!root)return;
+ root.querySelectorAll('.ps6c-host').forEach(host=>{
+  const kind=host.dataset.kind,idValue=host.dataset.id,plan=d[kind]?.find(p=>p.id===idValue);
+  if(!plan)return;
+  const lines=(plan.lines||[]).filter(l=>d.recipes.some(r=>r.id===l.flavor)&&d.shapes.some(s=>s.id===l.shape));
+  if(!lines.length){host.textContent='Add a flavor and popper shape to this plan first.';return}
+  const options=lines.map((l,i)=>'<option value="'+i+'">'+esc(flavorName(l.flavor))+' - '+esc(shapeName(l.shape))+' ('+Number(l.count||0)+' pops)</option>').join('');
+  host.innerHTML='<label>Flavor and popper</label><select class="ps6c-line">'+options+'</select>'+
+   '<label>Actual finished dough weight (optional)</label><div class="formgrid"><input class="ps6c-weight" type="number" min="0.01" step="any" placeholder="Enter after mixing">'+
+   '<select class="ps6c-unit"><option value="oz">oz</option><option value="g">grams</option></select></div>'+
+   '<label>Number of full recipe batches prepared</label><input class="ps6c-batches" type="number" min="0.1" step="any" value="1">'+
+   '<label><input class="ps6c-exclude" type="checkbox"> Exclude this unusual batch from future typical averages</label>'+
+   '<div class="notice ps6c-result" aria-live="polite"></div>'+
+   '<button type="button" class="alt ps6c-save">Record actual dough weight</button>';
+  const lineSelect=host.querySelector('.ps6c-line'),weightInput=host.querySelector('.ps6c-weight'),unit=host.querySelector('.ps6c-unit'),batchesInput=host.querySelector('.ps6c-batches'),result=host.querySelector('.ps6c-result');
+  const current=()=>lines[Number(lineSelect.value)||0];
+  const renderEstimate=()=>{
+   const line=current();const r=d.recipes.find(v=>v.id===line.flavor);
+   const thickness=Number(r?.doughDepthOverride)||psDefaultDepth();
+   const piece=ps6cPieceWeight(line.shape,thickness);
+   const saved=ps6cRecipeWeight(line.flavor);
+   const actual=Number(weightInput.value)>0?Number(weightInput.value)/(unit.value==='g'?28.349523125:1):null;
+   const batches=Number(batchesInput.value);
+   const validBatches=Number.isFinite(batches)&&batches>0;
+   const total=actual!==null?actual:(saved&&validBatches?saved.oz*batches:null);
+   const yieldCount=piece&&total>0?Math.floor(total/piece.oz):null;
+   result.textContent=yieldCount===null?'No reliable estimate yet. Enter actual dough weight, or save a typical recipe weight and a measured/reference popper weight.':
+    'Estimated '+yieldCount+' pops ('+(actual!==null?'actual batch weight':saved.source)+', '+piece.source+'). Order needs '+Number(line.count||0)+'. Additional pops needed: '+Math.max(0,Number(line.count||0)-yieldCount)+'.';
+  };
+  [lineSelect,weightInput,unit,batchesInput].forEach(input=>input.addEventListener('input',renderEstimate));
+  host.querySelector('.ps6c-save').addEventListener('click',()=>{
+   const line=current(),amount=Number(weightInput.value),batches=Number(batchesInput.value);
+   if(!(amount>0)||!(batches>0)||!Number.isFinite(amount)||!Number.isFinite(batches)){alert('Enter actual finished dough weight and positive recipe batch count first.');return}
+   const oz=amount/(unit.value==='g'?28.349523125:1);
+   d.doughHistory.push({id:id(),recipeId:line.flavor,shapeId:line.shape,planKind:kind,planId:idValue,date:new Date().toISOString(),weightOz:oz,batchCount:batches,exclude:host.querySelector('.ps6c-exclude').checked});
+   save();renderEstimate();alert('Batch weight recorded. Your original recipe, order quantities and inventory were not changed.');
+  });
+  renderEstimate();
+ });
+};
+
 save();render();psWelcomeFirstLaunch();if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
