@@ -3006,4 +3006,62 @@ recipePhotoChosen=async function(el){
  finally{URL.revokeObjectURL(src);}
 };
 
+
+/* New ingredient purchase capture: opt-in destinations, never overwrite existing supplies. */
+function psPurchasedNewIngredient(key){
+ const row=shopNeeds().find(r=>r.key===key);
+ if(!row||row.id)return shopChecklistAction('bought',key);
+ const plan=shopCurrentPlan();
+ const flavors=plan?[...new Set((plan.lines||[]).map(l=>l.flavor).filter(Boolean))]:[];
+ const destinations=flavors.map(rid=>d.recipes.find(r=>r.id===rid)).filter(Boolean)
+  .filter(r=>recipeParts(r).some(p=>normal(p.name)===normal(row.name)));
+ modal('Record new ingredient purchase',
+ '<p class="muted small">Purchased '+esc(row.name)+'. Enter the package you bought, then choose where its price should be remembered. Your shopping checklist will be marked bought after saving.</p>'+
+ '<form onsubmit="psSavePurchasedIngredient(event,\''+encodeURIComponent(key)+'\')">'+
+ '<label>Ingredient</label><input value="'+esc(row.name)+'" disabled>'+
+ '<div class="formgrid"><div><label>Price paid ($)</label><input name="price" type="number" min="0" step="0.01" required></div>'+
+ '<div><label>Amount in purchased package</label><input name="amount" type="text" placeholder="16 or 1/2" required></div></div>'+
+ '<label>Package unit</label><input name="unit" placeholder="oz, g, cup, each..." value="'+esc(row.unit)+'" required>'+
+ '<label>Remember this purchase in</label><select name="destination">'+
+ '<option value="stock">My Stock (recommended)</option>'+
+ (destinations.length?'<option value="recipe">Selected order recipes only</option><option value="both">My Stock and selected order recipes</option>':'')+
+ '<option value="none">This shopping checklist only</option></select>'+
+ '<p class="muted small">My Stock creates a reusable supply with zero stock on hand; it does not automatically count purchased packages as available. Recipe-only pricing changes costing without adding stock. Existing supplies are never overwritten.</p>'+
+ '<div class="actions"><button type="submit">Save purchase</button><button type="button" class="alt" onclick="document.getElementById(\'dialog\').close()">Cancel</button></div></form>');
+}
+function psSavePurchasedIngredient(e,encoded){
+ e.preventDefault();
+ const key=decodeURIComponent(encoded),row=shopNeeds().find(r=>r.key===key),form=e.target;
+ if(!row)return alert('This shopping item is no longer available.');
+ const price=Number(form.elements.price.value),amount=recipeAmount(form.elements.amount.value.trim());
+ const unit=form.elements.unit.value.trim(),destination=form.elements.destination.value;
+ if(!Number.isFinite(price)||price<0||!(amount>0)||!unit)return alert('Enter a valid price, positive package amount and unit.');
+ const plan=shopCurrentPlan();
+ const recipes=plan?[...new Set((plan.lines||[]).map(l=>l.flavor).filter(Boolean))].map(rid=>d.recipes.find(r=>r.id===rid)).filter(Boolean):[];
+ if((destination==='stock'||destination==='both')&&!d.items.some(i=>normal(i.name)===normal(row.name))){
+  const type=d.categories.find(c=>!isShapeCategory(c))?.id||'';
+  const item={id:id(),name:row.name,type,qty:0,unit,packageCost:price,packageSize:amount,packageUnit:unit,min:0,restock:0};
+  d.items.push(item);
+  if(typeof psPriceTrack==='function')psPriceTrack(item,'shopping');
+ }
+ if(destination==='recipe'||destination==='both'){
+  for(const recipe of recipes){
+   for(const p of recipe.parts||[]){
+    const name=p.name||d.items.find(i=>i.id===p.id)?.name||'';
+    if(normal(name)!==normal(row.name))continue;
+    p.recipeCostPrice=String(price);p.recipeCostSize=amount;p.recipeCostSizeText=form.elements.amount.value.trim();p.recipeCostUnit=unit;
+   }
+  }
+ }
+ if(destination!=='none'&&destination!=='recipe'&&destination!=='both'&&destination!=='stock')return;
+ const listKey=shopKey(),state=d.shoppingChecklists[listKey]||{bought:{},archived:false};
+ state.bought[key]=true;state.archived=false;d.shoppingChecklists[listKey]=state;
+ save();$('dialog').close();renderShopping();
+}
+const psNewIngredientChecklistAction=shopChecklistAction;
+shopChecklistAction=function(action,key){
+ if(action==='bought'&&shopNeeds().some(r=>r.key===key&&!r.id))return psPurchasedNewIngredient(key);
+ return psNewIngredientChecklistAction(action,key);
+};
+
 save();render();psWelcomeFirstLaunch();if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
