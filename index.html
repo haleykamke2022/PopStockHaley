@@ -2646,4 +2646,76 @@ saveShape=function(e,x){
  if(shape){for(const key of keys){if(values[key]===null)delete shape[key];else shape[key]=values[key]}save()}
 };
 
+
+/* Popper size / dough depth estimating. Estimates do not replace measured shape yields. */
+const psDepths=[0.5,0.625,0.75,0.875,1];
+const psWeights={small:[.4,.5,.6,.7,.8],medium:[.6,.8,.9,1,1.2],large:[.8,1,1.2,1.4,1.6],xl:[1,1.3,1.5,1.8,2]};
+const psDepthLabel=n=>({0.5:'1/2',0.625:'5/8',0.75:'3/4',0.875:'7/8',1:'1'})[n]||String(n);
+function psDefaultDepth(){const v=Number(d.settings?.defaultDoughDepth);return psDepths.includes(v)?v:.5}
+function psDepthOptions(chosen){return psDepths.map(v=>'<option value="'+v+'" '+(Number(chosen)===v?'selected':'')+'>'+psDepthLabel(v)+' inch</option>').join('')}
+function psEstimateYield(size,depth,batchOz){
+ const weights=psWeights[size];if(!weights)return null;
+ const idx=psDepths.indexOf(Number(depth));if(idx<0)return null;
+ const oz=Number(batchOz);if(!(oz>0))return null;
+ const weight=weights[idx];
+ return {yield:Math.floor(oz/weight),weight};
+}
+const psDefaultBefore=renderSettings;
+renderSettings=function(){
+ psDefaultBefore();
+ const host=$('settings');if(!host)return;
+ const card=document.createElement('div');card.className='card';card.innerHTML='<h3>Dough & yield defaults</h3><label>Default rolled dough thickness</label><select id="psDefaultDepth">'+psDepthOptions(psDefaultDepth())+'</select><label>Approximate dough weight from one full cake (oz)</label><input id="psBatchOz" type="number" min="0.01" step="any" value="'+esc(d.settings?.batchDoughOz??19.2)+'"><p class="muted small">19.2 oz is a starting example, not a universal cake yield. Weigh your actual finished dough for better estimates. Existing measured popper yields remain unchanged.</p><button type="button" class="alt" id="psSaveDepthDefaults">Save defaults</button>';
+ host.prepend(card);
+ card.querySelector('#psSaveDepthDefaults').addEventListener('click',()=>{
+  const depth=Number(card.querySelector('#psDefaultDepth').value),oz=Number(card.querySelector('#psBatchOz').value);
+  if(!psDepths.includes(depth)||!(oz>0)||!Number.isFinite(oz)){alert('Choose a valid thickness and positive batch weight.');return}
+  d.settings||={};d.settings.defaultDoughDepth=depth;d.settings.batchDoughOz=oz;save();render();alert('Dough defaults saved.');
+ });
+};
+const psDepthBeforeEditShape=editShape;
+editShape=function(x=''){
+ psDepthBeforeEditShape(x);
+ const form=$('dialogBody')?.querySelector('form');if(!form)return;
+ const sh=d.shapes.find(v=>v.id===x)||{};
+ const box=document.createElement('div');
+ box.innerHTML='<h4>Popper size and estimated yield</h4><label>Popper size</label><select name="psPopSize"><option value="">Custom / not specified</option>'+[['small','Small'],['medium','Medium'],['large','Large'],['xl','Extra Large']].map(([v,label])=>'<option value="'+v+'" '+(sh.popSize===v?'selected':'')+'>'+label+'</option>').join('')+'</select><p class="muted small">Based on approximate dough weights from the Daisy Makes chart. Cakesicle cutters and unusual shapes can weigh differently.</p><div id="psEstimateShape" class="notice"></div><button type="button" class="alt" id="psUseShapeEstimate">Use estimate as shape yield</button>';
+ form.querySelector('.actions')?.insertAdjacentElement('beforebegin',box);
+ const refresh=()=>{
+  const size=form.elements.psPopSize.value,depth=Number(form.elements.doughThicknessIn?.value)||psDefaultDepth();
+  const oz=Number(d.settings?.batchDoughOz??19.2);
+  const est=psEstimateYield(size,depth,oz);
+  $('psEstimateShape').textContent=est?'Estimated '+est.yield+' pops from '+oz+' oz of dough ('+est.weight+' oz per pop). Current saved/measured yield: '+form.elements.yield.value+'.':'Select a size to see an estimated yield.';
+  return est;
+ };
+ form.elements.psPopSize.addEventListener('change',refresh);
+ form.elements.doughThicknessIn?.addEventListener('input',refresh);
+ box.querySelector('#psUseShapeEstimate').addEventListener('click',()=>{const est=refresh();if(est&&est.yield>=1)form.elements.yield.value=est.yield;else alert('Choose a size and one of the standard dough depths to estimate yield.')});
+ refresh();
+};
+const psDepthBeforeSaveShape=saveShape;
+saveShape=function(e,x){
+ const size=e.target.elements.psPopSize?.value||'';
+ psDepthBeforeSaveShape(e,x);
+ const sh=x?d.shapes.find(v=>v.id===x):d.shapes[d.shapes.length-1];
+ if(sh){sh.popSize=size;save()}
+};
+const psDepthBeforeEditFlavor=editFlavor;
+editFlavor=function(x=''){
+ psDepthBeforeEditFlavor(x);
+ const form=$('dialogBody')?.querySelector('form');if(!form)return;
+ const r=d.recipes.find(v=>v.id===x)||{};
+ const wrap=document.createElement('div');
+ wrap.innerHTML='<h3>Recipe dough thickness</h3><p class="muted small">Use your usual thickness or override it for this recipe. It does not change any measured shape yields automatically.</p><label>Thickness for this recipe</label><select name="psRecipeDepth"><option value="">Use default ('+psDepthLabel(psDefaultDepth())+' inch)</option>'+psDepthOptions(r.doughDepthOverride)+'</select>';
+ form.querySelector('.actions')?.insertAdjacentElement('beforebegin',wrap);
+};
+const psDepthBeforeSaveFlavor=saveFlavor;
+saveFlavor=function(e,x){
+ const raw=e.target.elements.psRecipeDepth?.value||'';
+ const depth=raw?Number(raw):null;
+ if(raw&&!psDepths.includes(depth)){e.preventDefault();alert('Choose a valid dough thickness.');return}
+ psDepthBeforeSaveFlavor(e,x);
+ const r=x?d.recipes.find(v=>v.id===x):d.recipes[d.recipes.length-1];
+ if(r){r.doughDepthOverride=depth;save()}
+};
+
 save();render();psWelcomeFirstLaunch();if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
