@@ -2899,4 +2899,111 @@ editShape=function(x=''){
  refresh();
 };
 
+
+/* Flavors usability: compact saved recipes and progressive ingredient entry. */
+const psFlavorUXRow=ingredientRow;
+ingredientRow=function(p={}){
+ psFlavorUXRow(p);
+ const host=$('ingredients');const row=host?.lastElementChild;
+ if(!row?.classList.contains('ingredient'))return;
+ const pricing=row.querySelector('.recipe-only-cost');
+ if(pricing&&pricing.tagName!=='DETAILS'){
+  const details=document.createElement('details');
+  details.className='recipe-only-cost';
+  details.style.cssText=pricing.style.cssText;
+  const summary=document.createElement('summary');summary.style.cursor='pointer';summary.textContent='Optional recipe-only pricing';
+  while(pricing.firstChild){
+   const child=pricing.firstChild;
+   if(child.tagName==='STRONG'&&child.textContent.includes('Optional recipe-only pricing')){child.remove();continue;}
+   details.appendChild(child);
+  }
+  details.prepend(summary);
+  if(p.recipeCostPrice||p.recipeCostSizeText||p.recipeCostUnit)details.open=true;
+  pricing.replaceWith(details);
+ }
+};
+partRow=ingredientRow;
+const psFlavorUXEdit=editFlavor;
+editFlavor=function(x=''){
+ psFlavorUXEdit(x);
+ const form=$('dialogBody')?.querySelector('form');if(!form)return;
+ const photo=form.querySelector('#recipePhoto');
+ const preview=photo?.closest('.pair');
+ const ingredientList=form.querySelector('#ingredients');
+ const addButton=[...form.querySelectorAll('button')].find(b=>b.textContent.includes('Add ingredient manually'));
+ if(!preview||!ingredientList||!addButton)return;
+ const photoDetails=document.createElement('details');
+ photoDetails.className='card';
+ const photoSummary=document.createElement('summary');photoSummary.textContent='Import from photo or screenshot';photoSummary.style.cursor='pointer';
+ photoDetails.append(photoSummary,preview);ingredientList.before(photoDetails);
+ const manualDetails=document.createElement('details');
+ manualDetails.className='card';
+ const manualSummary=document.createElement('summary');manualSummary.textContent='Enter or edit ingredients manually';manualSummary.style.cursor='pointer';
+ manualDetails.append(manualSummary,ingredientList,addButton);
+ photoDetails.after(manualDetails);
+ manualDetails.open=!x || !ingredientList.children.length;
+ const heading=[...form.querySelectorAll('h3')].find(h=>h.textContent.trim()==='Recipe Ingredients');
+ if(heading)heading.textContent='Recipe Ingredients — choose how to enter';
+ // Expose the ingredients when a photo import creates new rows.
+ const watcher=new MutationObserver(()=>{if(ingredientList.children.length&&photoDetails.open)manualDetails.open=true;});
+ watcher.observe(ingredientList,{childList:true});
+ const originalOnSubmit=form.onsubmit;
+ form.addEventListener('submit',()=>watcher.disconnect(),{once:true});
+};
+const psFlavorUXRender=renderFlavors;
+renderFlavors=function(){
+ psFlavorUXRender();
+ const root=$('flavors');if(!root)return;
+ root.querySelectorAll('.card').forEach(card=>{
+  const row=card.querySelector('.row');
+  const content=row?.nextElementSibling;
+  if(!content||content.tagName==='DETAILS')return;
+  const details=document.createElement('details');
+  const summary=document.createElement('summary');summary.style.cursor='pointer';
+  summary.textContent='View recipe ingredients';
+  details.append(summary,content);
+  row.after(details);
+ });
+};
+/* Photo import: upscale and contrast-enhance before OCR; source remains editable for review. */
+recipePhotoChosen=async function(el){
+ const file=el.files?.[0];if(!file)return;
+ const status=$('photoStatus');const textarea=$('photoText'),preview=$('photoPreview');
+ if(!status||!textarea||!preview)return;
+ status.textContent='Preparing image for text recognition...';
+ const src=URL.createObjectURL(file);
+ preview.replaceChildren();
+ const img=document.createElement('img');img.src=src;img.alt='Selected recipe';img.style.cssText='max-width:100%;max-height:220px;object-fit:contain';
+ preview.append(img);
+ try{
+  if(!window.Tesseract)await new Promise((resolve,reject)=>{
+   const script=document.createElement('script');script.src='https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
+   script.onload=resolve;script.onerror=()=>reject(Error('Text recognition library unavailable.'));document.head.append(script);
+  });
+  const image=await new Promise((resolve,reject)=>{const im=new Image();im.onload=()=>resolve(im);im.onerror=()=>reject(Error('Unable to open image'));im.src=src;});
+  const max=2600,scale=Math.min(3,max/Math.max(image.naturalWidth,image.naturalHeight));
+  const canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.round(image.naturalWidth*scale));canvas.height=Math.max(1,Math.round(image.naturalHeight*scale));
+  const ctx=canvas.getContext('2d',{willReadFrequently:true});if(!ctx)throw Error('Image processing unavailable');
+  ctx.drawImage(image,0,0,canvas.width,canvas.height);
+  const pixels=ctx.getImageData(0,0,canvas.width,canvas.height);
+  for(let i=0;i<pixels.data.length;i+=4){
+   const gray=.299*pixels.data[i]+.587*pixels.data[i+1]+.114*pixels.data[i+2];
+   const enhanced=Math.max(0,Math.min(255,(gray-128)*1.35+138));
+   pixels.data[i]=pixels.data[i+1]=pixels.data[i+2]=enhanced;
+  }
+  ctx.putImageData(pixels,0,0);
+  status.textContent='Recognizing ingredients...';
+  const worker=await Tesseract.createWorker('eng');
+  try{
+   const out=await worker.recognize(canvas);
+   textarea.value=(out.data?.text||'').trim();
+   const confidence=Number(out.data?.confidence)||0;
+   status.textContent=textarea.value
+    ?'Text extracted ('+Math.round(confidence)+'% OCR confidence). Review quantities, fractions, ingredients, and units before adding. Nothing is saved automatically.'
+    :'No readable ingredients detected. Try a closer, well-lit, straight-on photo or type the ingredients manually.';
+  }finally{await worker.terminate();}
+ }catch(err){status.textContent='Photo reading failed: '+err.message+'. Paste or type the ingredients instead.';}
+ finally{URL.revokeObjectURL(src);}
+};
+
 save();render();psWelcomeFirstLaunch();if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
