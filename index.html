@@ -2617,4 +2617,33 @@ renderStock=function(){
  button.addEventListener('click',psQuickOpen);first.appendChild(button);
 };
 
+
+/* Optional popper measurements; recorded values never change calculated yield. */
+const psMeasureEditBefore=editShape;
+editShape=function(x=''){
+ psMeasureEditBefore(x);
+ const form=$('dialogBody')?.querySelector('form');if(!form)return;
+ const sh=d.shapes.find(v=>v.id===x)||{};
+ const safeNum=v=>Number.isFinite(Number(v))&&v!==''&&v!=null?String(v):'';
+ const extra=document.createElement('div');
+ extra.innerHTML='<h4>Optional dough measurements</h4><p class="muted small">Use your own tested measurements. Leave unknown fields blank; yield per cake stays unchanged.</p>'+
+ '<div class="formgrid">'+
+ '<div><label>Rolled dough thickness (inches)</label><input type="number" name="doughThicknessIn" min="0.01" step="any" placeholder="0.5" value="'+esc(safeNum(sh.doughThicknessIn))+'"></div>'+
+ '<div><label>Dough weight per pop (grams)</label><input type="number" name="doughWeightG" min="0.01" step="any" placeholder="e.g., 38" value="'+esc(safeNum(sh.doughWeightG))+'"></div>'+
+ '<div><label>Popper width (inches)</label><input type="number" name="cutterWidthIn" min="0.01" step="any" value="'+esc(safeNum(sh.cutterWidthIn))+'"></div>'+
+ '<div><label>Popper height (inches)</label><input type="number" name="cutterHeightIn" min="0.01" step="any" value="'+esc(safeNum(sh.cutterHeightIn))+'"></div>'+
+ '</div>';
+ form.querySelector('.actions')?.insertAdjacentElement('beforebegin',extra);
+};
+const psMeasureSaveBefore=saveShape;
+saveShape=function(e,x){
+ const form=e.target;const keys=['doughThicknessIn','doughWeightG','cutterWidthIn','cutterHeightIn'];const values={};
+ for(const key of keys){const raw=form.elements[key]?.value?.trim()||'';if(raw){const n=Number(raw);if(!Number.isFinite(n)||n<=0){e.preventDefault();alert('Enter a positive number for dough measurements, or leave the field blank.');return}values[key]=n}else values[key]=null}
+ const name=form.elements.name?.value?.trim()||'';const y=Number(form.elements.yield?.value);
+ if(!name||!Number.isInteger(y)||y<1){e.preventDefault();alert('Enter a shape name and a valid yield.');return}
+ psMeasureSaveBefore(e,x);
+ const shape=x?d.shapes.find(v=>v.id===x):d.shapes[d.shapes.length-1];
+ if(shape){for(const key of keys){if(values[key]===null)delete shape[key];else shape[key]=values[key]}save()}
+};
+
 save();render();psWelcomeFirstLaunch();if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
