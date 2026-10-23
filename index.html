@@ -2822,4 +2822,84 @@ saveShape=function(e,x){
  }
 };
 
+
+/* Phase 6B refinement: friendly fraction entry, measured-weight priority, and collapsed advanced fields. */
+function ps6bParseInches(value){
+ const s=String(value??'').trim();
+ if(!s)return null;
+ const m=s.match(/^(?:(\d+)\s+)?(\d+)\s*\/\s*(\d+)$/);
+ if(m){const denominator=Number(m[3]);return denominator>0?(Number(m[1]||0)+Number(m[2])/denominator):NaN;}
+ const n=Number(s);return Number.isFinite(n)?n:NaN;
+}
+const ps6bRefineEdit=editShape;
+editShape=function(x=''){
+ ps6bRefineEdit(x);
+ const form=$('dialogBody')?.querySelector('form');if(!form)return;
+ const weight=form.elements.doughWeightG;
+ const panel=form.querySelector('#ps6bWeightInfo');
+ const measurementHeading=[...form.querySelectorAll('h4')].find(el=>el.textContent.trim()==='Optional dough measurements');
+ const measurement=measurementHeading?.parentElement;
+ // The optional fields were originally inserted in a plain div before the other profile panels.
+ const block=measurementHeading?.parentElement;
+ if(block && block!==form){
+  const details=document.createElement('details');
+  details.className='card';
+  const summary=document.createElement('summary');
+  summary.style.cursor='pointer';
+  summary.style.fontWeight='650';
+  summary.textContent='Optional dough measurements';
+  const help=document.createElement('button');
+  help.type='button';help.className='alt';help.textContent='What is this for?';
+  help.style.margin='10px 0';
+  const info=document.createElement('p');info.className='muted small';info.hidden=true;
+  info.textContent='These fields help you record measurements for Daisy Makes, other popper brands, or custom cutters. Use thickness, cutter width and height, and a weighed finished dough piece to make future yield estimates more personal. Measurements are optional and do not change your saved yields automatically.';
+  help.addEventListener('click',()=>{info.hidden=!info.hidden;help.textContent=info.hidden?'What is this for?':'Hide explanation';});
+  // Move only the measurement section elements, preserving inputs and their event listeners.
+  const start=measurementHeading;
+  const paragraph=start.nextElementSibling;
+  const fields=paragraph?.nextElementSibling;
+  if(fields?.classList.contains('formgrid')){
+   details.append(summary,help,info,fields);
+   start.remove();paragraph?.remove();
+   form.querySelector('.actions')?.insertAdjacentElement('beforebegin',details);
+  }
+ }
+ for(const name of ['doughThicknessIn','cutterWidthIn','cutterHeightIn']){
+  const input=form.elements[name];
+  if(!input)continue;
+  input.type='text';input.inputMode='decimal';input.placeholder=name==='doughThicknessIn'?'1/2 or 0.5':'3/4 or 0.75';
+ }
+ const info=form.querySelector('#ps6bWeightInfo');
+ const unit=form.elements.ps6bUnit;
+ const updateWeight=()=>{
+  if(!info||!unit)return;
+  const size=form.elements.psPopSize?.value||'';
+  const typed=form.elements.doughThicknessIn?.value||'';
+  const depth=typed?ps6bParseInches(typed):psDefaultDepth();
+  const grams=Number(weight?.value);
+  const measured=grams>0&&Number.isFinite(grams)?grams:null;
+  const detail=ps6bDetails({doughWeightG:measured},size,depth,unit.value);
+  info.textContent=detail.value===null?'No matching reference weight. Enter a measured dough weight for this shape, or choose a supported Daisy Makes size and thickness.':
+   (measured!==null?'Your measured piece weight (used instead of the chart)':'Daisy Makes reference estimate')+': '+detail.value.toFixed(unit.value==='g'?1:2)+' '+unit.value+' per pop.';
+ };
+ ['psPopSize','doughThicknessIn','doughWeightG','ps6bUnit'].forEach(name=>{
+  form.elements[name]?.addEventListener('input',updateWeight);
+  form.elements[name]?.addEventListener('change',updateWeight);
+ });
+ updateWeight();
+};
+const ps6bRefineSave=saveShape;
+saveShape=function(e,x){
+ const form=e.target;
+ const fields=['doughThicknessIn','cutterWidthIn','cutterHeightIn'];
+ for(const name of fields){
+  const input=form.elements[name];if(!input)continue;
+  const raw=input.value.trim();if(!raw)continue;
+  const parsed=ps6bParseInches(raw);
+  if(!(parsed>0)&&raw){e.preventDefault();alert('Enter a valid positive number or fraction such as 3/4 for '+name+'.');return;}
+  input.value=String(parsed);
+ }
+ ps6bRefineSave(e,x);
+};
+
 save();render();psWelcomeFirstLaunch();if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
