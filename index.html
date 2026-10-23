@@ -2720,50 +2720,7 @@ saveFlavor=function(e,x){
 
 
 /* Phase 6A: optional known-yield choice and shape identity. Existing yields and records are retained. */
-const ps6aEditBefore=editShape;
-editShape=function(x=''){
- ps6aEditBefore(x);
- const form=$('dialogBody')?.querySelector('form');if(!form)return;
- const sh=d.shapes.find(v=>v.id===x)||{};
- const known=sh.yieldKnown!==false;
- const extra=document.createElement('div');
- extra.innerHTML='<h4>Shape profile</h4>'+
- '<label>Popper brand (optional)</label><input name="psBrand" maxlength="80" placeholder="Daisy Makes, custom, or another brand" value="'+esc(sh.popBrand||'')+'">'+
- '<label>Do you know how many shapes one full cake yields?</label>'+
- '<select name="psYieldKnown"><option value="yes" '+(known?'selected':'')+'>Yes, I know my yield</option><option value="no" '+(!known?'selected':'')+'>No, estimate it later</option></select>'+
- '<p class="muted small" id="ps6aHint">If you do not know your yield, PopStock keeps the existing planning value until the dough calculator is connected. It will not treat it as a measured yield.</p>';
- const actions=form.querySelector('.actions');
- actions?.insertAdjacentElement('beforebegin',extra);
- const input=form.elements.yield;
- const label=input?.previousElementSibling;
- const requiredValue=x?String(sh.yield||20):'20';
- const update=()=>{
-  const yes=form.elements.psYieldKnown.value==='yes';
-  if(label)label.textContent=yes?'Known shapes per full cake':'Planning placeholder (not measured)';
-  input.required=yes;
-  input.disabled=!yes;
-  if(!yes){input.value=requiredValue;}
-  if(yes && !(Number(input.value)>0))input.value=requiredValue;
- };
- form.elements.psYieldKnown.addEventListener('change',update);
- update();
-};
-const ps6aSaveBefore=saveShape;
-saveShape=function(e,x){
- const form=e.target;
- const known=form.elements.psYieldKnown?.value!=='no';
- const brand=form.elements.psBrand?.value.trim()||'';
- const original=x?d.shapes.find(s=>s.id===x):null;
- if(!known && form.elements.yield){
-  form.elements.yield.disabled=false;
-  form.elements.yield.value=String(original?.yield||20);
- }
- const before=new Set(d.shapes.map(s=>s.id));
- ps6aSaveBefore(e,x);
- const saved=x?d.shapes.find(s=>s.id===x):d.shapes.find(s=>!before.has(s.id));
- if(saved){saved.yieldKnown=known;saved.popBrand=brand;save();}
-};
-
+/* Shape profile UI removed. Historical yieldKnown and popBrand data retained unchanged. */
 
 /* Phase 6B: Daisy Makes reference weights. Reference values never overwrite saved yields. */
 const ps6bGramsPerOz=28.349523125;
@@ -2900,6 +2857,46 @@ saveShape=function(e,x){
   input.value=String(parsed);
  }
  ps6bRefineSave(e,x);
+};
+
+
+/* Fix live yield preview: use entered piece weight ahead of Daisy Makes reference. */
+const psWeightPreviewEdit=editShape;
+editShape=function(x=''){
+ psWeightPreviewEdit(x);
+ const form=$('dialogBody')?.querySelector('form');if(!form)return;
+ const info=form.querySelector('#psEstimateShape');
+ const useButton=form.querySelector('#psUseShapeEstimate');
+ if(!info)return;
+ const refresh=()=>{
+  const size=form.elements.psPopSize?.value||'';
+  const depthText=form.elements.doughThicknessIn?.value?.trim()||'';
+  const depth=depthText?ps6bParseInches(depthText):psDefaultDepth();
+  const grams=Number(form.elements.doughWeightG?.value);
+  const weight=grams>0&&Number.isFinite(grams)?grams/ps6bGramsPerOz:ps6bReference(size,depth);
+  const batchOz=Number(d.settings?.batchDoughOz??19.2);
+  if(!(weight>0)||!(batchOz>0)){
+   info.textContent='Enter a measured weight per pop or select a reference size and thickness to estimate yield.';
+   if(useButton)useButton.disabled=true;
+   return null;
+  }
+  const count=Math.floor(batchOz/weight);
+  const source=grams>0&&Number.isFinite(grams)?'measured piece weight':'Daisy Makes reference';
+  info.textContent='Estimated '+count+' pops from '+batchOz+' oz of dough using '+source+' ('+weight.toFixed(2)+' oz per pop). Your saved yield is not changed unless you choose to use this estimate.';
+  if(useButton)useButton.disabled=count<1;
+  return count;
+ };
+ ['doughWeightG','doughThicknessIn','psPopSize'].forEach(name=>{
+  form.elements[name]?.addEventListener('input',refresh);
+  form.elements[name]?.addEventListener('change',refresh);
+ });
+ if(useButton){
+  // Replace the prior reference-only button listener.
+  const newButton=useButton.cloneNode(true);
+  useButton.replaceWith(newButton);
+  newButton.addEventListener('click',()=>{const count=refresh();if(count!==null&&count>=1)form.elements.yield.value=count;});
+ }
+ refresh();
 };
 
 save();render();psWelcomeFirstLaunch();if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
