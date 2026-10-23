@@ -2421,7 +2421,7 @@ renderStock=function(){
  categories.map(c=>{
  const members=alpha(d.shapes.filter(sh=>(sh.shapeGroup||'')===c.id));
  if(!members.length&&c.id==='')return '';
- return '<details class="card" open><summary style="cursor:pointer;padding:6px 0"><strong>'+esc(c.name)+'</strong> <span class="muted small">('+members.length+')</span></summary>'+
+ return '<details class="card"><summary style="cursor:pointer;padding:6px 0"><strong>'+esc(c.name)+'</strong> <span class="muted small">('+members.length+')</span></summary>'+
  (members.map(sh=>'<div class="item"><div class="row"><div><strong>'+esc(sh.name)+'</strong><div class="small muted">'+(sh.yield>0?sh.yield+' pops per cake mix':'Set yield for calculations')+'</div></div><button class="alt" onclick="editShape(\''+sh.id+'\')">Edit</button></div></div>').join('')||'<p class="muted small">No shapes in this category yet.</p>')+'</details>';
  }).join('');
  list.outerHTML='<div id="psShapeGroups">'+html+'</div>';
