@@ -2764,4 +2764,62 @@ saveShape=function(e,x){
  if(saved){saved.yieldKnown=known;saved.popBrand=brand;save();}
 };
 
+
+/* Phase 6B: Daisy Makes reference weights. Reference values never overwrite saved yields. */
+const ps6bGramsPerOz=28.349523125;
+function ps6bReference(size,thickness){
+ const arr=psWeights[String(size||'').toLowerCase()];
+ const index=psDepths.indexOf(Number(thickness));
+ return arr&&index>=0?arr[index]:null;
+}
+function ps6bDetails(shape,size,depth,unit){
+ const grams=Number(shape.doughWeightG);
+ const measured=Number.isFinite(grams)&&grams>0?grams:null;
+ const refOz=ps6bReference(size,depth);
+ const oz=measured!==null?measured/ps6bGramsPerOz:refOz;
+ return {oz,source:measured!==null?'Measured for this shape':refOz!==null?'Daisy Makes approximate reference':'No weight available',value:oz===null?null:unit==='g'?oz*ps6bGramsPerOz:oz};
+}
+const ps6bPreviousEditShape=editShape;
+editShape=function(x=''){
+ ps6bPreviousEditShape(x);
+ const form=$('dialogBody')?.querySelector('form');
+ if(!form)return;
+ const sh=d.shapes.find(s=>s.id===x)||{};
+ const panel=document.createElement('section');
+ panel.className='card';
+ panel.innerHTML='<h4>Daisy Makes weight reference</h4>'+
+ '<p class="muted small">Approximate dough weight per pop based on cutter size and rolled thickness. Different shapes within one size can weigh differently. Your measured piece weight takes priority.</p>'+
+ '<label>Weight display unit</label><select name="ps6bUnit"><option value="oz">Ounces (oz)</option><option value="g">Grams (g)</option></select>'+
+ '<div class="notice" id="ps6bWeightInfo" aria-live="polite"></div>'+
+ '<p class="muted small">These are reference weights, not guaranteed yields. No recipe, shape yield, or inventory quantity is changed by this panel.</p>';
+ form.querySelector('.actions')?.insertAdjacentElement('beforebegin',panel);
+ const unit=panel.querySelector('[name="ps6bUnit"]');
+ unit.value=d.settings?.shapeWeightDisplayUnit==='g'?'g':'oz';
+ const output=panel.querySelector('#ps6bWeightInfo');
+ const refresh=()=>{
+  const size=form.elements.psPopSize?.value||sh.popSize||'';
+  const raw=form.elements.doughThicknessIn?.value;
+  const depth=raw?Number(raw):psDefaultDepth();
+  const measured=Number(form.elements.doughWeightG?.value);
+  const value=ps6bDetails({doughWeightG:measured>0?measured:null},size,depth,unit.value);
+  output.textContent=value.value===null?
+   'Select a Daisy Makes size and supported thickness, or record a measured piece weight.':
+   value.source+': '+value.value.toFixed(unit.value==='g'?1:2)+' '+unit.value+' per finished dough piece. Thickness: '+psDepthLabel(depth)+' inch.';
+ };
+ ['psPopSize','doughThicknessIn','doughWeightG'].forEach(name=>{
+  const el=form.elements[name];if(el){el.addEventListener('input',refresh);el.addEventListener('change',refresh)}
+ });
+ unit.addEventListener('change',refresh);
+ refresh();
+};
+const ps6bPreviousSaveShape=saveShape;
+saveShape=function(e,x){
+ const unit=e.target.elements.ps6bUnit?.value;
+ ps6bPreviousSaveShape(e,x);
+ if((unit==='oz'||unit==='g')&&d.settings){
+  d.settings.shapeWeightDisplayUnit=unit;
+  save();
+ }
+};
+
 save();render();psWelcomeFirstLaunch();if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
