@@ -2853,7 +2853,7 @@ editShape=function(x=''){
   help.style.margin='10px 0';
   const info=document.createElement('p');info.className='muted small';info.hidden=true;
   info.textContent='These fields help you record measurements for Daisy Makes, other popper brands, or custom cutters. Use thickness, cutter width and height, and a weighed finished dough piece to make future yield estimates more personal. Measurements are optional and do not change your saved yields automatically.';
-  help.addEventListener('click',()=>{info.hidden=!info.hidden;help.textContent=info.hidden?'What is this for?':'Hide explanation';});
+  help.addEventListener('click',()=>alert(info.textContent));
   // Move only the measurement section elements, preserving inputs and their event listeners.
   const start=measurementHeading;
   const paragraph=start.nextElementSibling;
