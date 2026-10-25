@@ -3556,4 +3556,24 @@ psProfitModel=function(p){
  return psSelfServeProfitModelBefore(copy);
 };
 
+
+/* Phase 6E: immediate next actions and plain-language production guidance. */
+const ps6eRenderProductionBefore=renderProduction;
+renderProduction=function(){
+ ps6eRenderProductionBefore();
+ const root=$('production');if(!root)return;
+ root.querySelector('.ps6e-workflow')?.remove();
+ const banner=document.createElement('div');banner.className='card ps6e-workflow';
+ banner.style.margin='12px 0 18px';
+ banner.innerHTML='<strong>Your production workflow</strong>'+
+ '<p class="muted small" style="margin:8px 0">1. Plan flavors and quantities &nbsp; 2. Start production (ingredients are deducted) &nbsp; 3. Check off baking steps &nbsp; 4. Finish with actual counts (packaging is deducted)</p>'+
+ '<div class="actions"><button type="button" class="ps6e-new-order">+ New order</button><button type="button" class="alt ps6e-new-event">+ New event</button></div>'+
+ '<p class="muted small" style="margin-top:8px">Start and Finish are the steps that change inventory. Checking off production steps does not deduct stock.</p>';
+ banner.querySelector('.ps6e-new-order').addEventListener('click',()=>editPlan('orders'));
+ banner.querySelector('.ps6e-new-event').addEventListener('click',()=>editPlan('events'));
+ const stats=root.querySelector('.home-stats');
+ if(stats)stats.insertAdjacentElement('afterend',banner);
+ else root.prepend(banner);
+};
+
 try{render();psWelcomeFirstLaunch()}catch(psError){window.psShowStartupError?.(psError?.stack||psError?.message||psError);psEmergencyRecovery(psError)}if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
