@@ -3659,4 +3659,26 @@ popFinishOrder=function(x){
  }
 };
 
+
+/* Phase 6E final pass: one clear next action for new bakers. */
+const ps6eGuideBefore=renderGuide;
+renderGuide=function(){
+ ps6eGuideBefore();
+ const root=$('guide');if(!root)return;
+ root.querySelector('.ps6e-next-step')?.remove();
+ const steps=setupSteps();
+ const next=steps.find(s=>!s.done);
+ const card=document.createElement('div');card.className='card ps6e-next-step';
+ const headline=document.createElement('strong');
+ headline.textContent=next?'Recommended next step: '+next.name:'Setup complete — ready to bake';
+ const description=document.createElement('p');description.className='muted small';
+ description.textContent=next?next.description:'Your setup checklist is finished. Use Orders or Production to plan and track your next bake.';
+ const button=document.createElement('button');button.type='button';
+ button.textContent=next?next.action:'Open Production';
+ button.addEventListener('click',()=>go(next?.target||'production'));
+ card.append(headline,description,button);
+ const firstCard=root.querySelector('.card');
+ if(firstCard)firstCard.before(card);else root.append(card);
+};
+
 try{render();psWelcomeFirstLaunch()}catch(psError){window.psShowStartupError?.(psError?.stack||psError?.message||psError);psEmergencyRecovery(psError)}if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
