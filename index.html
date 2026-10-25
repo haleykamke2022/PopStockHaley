@@ -2664,12 +2664,13 @@ const psDefaultBefore=renderSettings;
 renderSettings=function(){
  psDefaultBefore();
  const host=$('settings');if(!host)return;
- const card=document.createElement('div');card.className='card';card.innerHTML='<h3>Dough & yield defaults</h3><label>Default rolled dough thickness</label><select id="psDefaultDepth">'+psDepthOptions(psDefaultDepth())+'</select><label>Approximate dough weight from one full cake (oz)</label><input id="psBatchOz" type="number" min="0.01" step="any" value="'+esc(d.settings?.batchDoughOz??19.2)+'"><p class="muted small">19.2 oz is a starting example, not a universal cake yield. Weigh your actual finished dough for better estimates. Existing measured popper yields remain unchanged.</p><button type="button" class="alt" id="psSaveDepthDefaults">Save defaults</button>';
+ const card=document.createElement('div');card.className='card';
+ card.innerHTML='<h3>Dough & yield defaults</h3><label>Default rolled dough thickness</label><select id="psDefaultDepth">'+psDepthOptions(psDefaultDepth())+'</select><p class="muted small">Dough weight is recorded during production for each flavor. PopStock uses that flavor’s history for future estimates; no universal batch weight is needed.</p><button type="button" class="alt" id="psSaveDepthDefaults">Save thickness default</button>';
  host.prepend(card);
  card.querySelector('#psSaveDepthDefaults').addEventListener('click',()=>{
-  const depth=Number(card.querySelector('#psDefaultDepth').value),oz=Number(card.querySelector('#psBatchOz').value);
-  if(!psDepths.includes(depth)||!(oz>0)||!Number.isFinite(oz)){alert('Choose a valid thickness and positive batch weight.');return}
-  d.settings||={};d.settings.defaultDoughDepth=depth;d.settings.batchDoughOz=oz;save();render();alert('Dough defaults saved.');
+  const depth=Number(card.querySelector('#psDefaultDepth').value);
+  if(!psDepths.includes(depth)){alert('Choose a valid thickness.');return}
+  d.settings||={};d.settings.defaultDoughDepth=depth;save();render();alert('Thickness default saved.');
  });
 };
 const psDepthBeforeEditShape=editShape;
@@ -2678,18 +2679,16 @@ editShape=function(x=''){
  const form=$('dialogBody')?.querySelector('form');if(!form)return;
  const sh=d.shapes.find(v=>v.id===x)||{};
  const box=document.createElement('div');
- box.innerHTML='<h4>Popper size and estimated yield</h4><label>Popper size</label><select name="psPopSize"><option value="">Custom / not specified</option>'+[['small','Small'],['medium','Medium'],['large','Large'],['xl','Extra Large']].map(([v,label])=>'<option value="'+v+'" '+(sh.popSize===v?'selected':'')+'>'+label+'</option>').join('')+'</select><p class="muted small">Based on approximate dough weights from the Daisy Makes chart. Cakesicle cutters and unusual shapes can weigh differently.</p><div id="psEstimateShape" class="notice"></div><button type="button" class="alt" id="psUseShapeEstimate">Use estimate as shape yield</button>';
+ box.innerHTML='<h4>Popper size and weight reference</h4><label>Popper size</label><select name="psPopSize"><option value="">Custom / not specified</option>'+[['small','Small'],['medium','Medium'],['large','Large'],['xl','Extra Large']].map(([v,label])=>'<option value="'+v+'" '+(sh.popSize===v?'selected':'')+'>'+label+'</option>').join('')+'</select><p class="muted small">Approximate piece weights help estimate yields after dough weight is recorded for a specific flavor.</p><div id="psEstimateShape" class="notice"></div>';
  form.querySelector('.actions')?.insertAdjacentElement('beforebegin',box);
  const refresh=()=>{
-  const size=form.elements.psPopSize.value,depth=Number(form.elements.doughThicknessIn?.value)||psDefaultDepth();
-  const oz=Number(d.settings?.batchDoughOz??19.2);
-  const est=psEstimateYield(size,depth,oz);
-  $('psEstimateShape').textContent=est?'Estimated '+est.yield+' pops from '+oz+' oz of dough ('+est.weight+' oz per pop). Current saved/measured yield: '+form.elements.yield.value+'.':'Select a size to see an estimated yield.';
-  return est;
+  const depthText=form.elements.doughThicknessIn?.value;
+  const depth=depthText?ps6bParseInches(depthText):psDefaultDepth();
+  const measured=Number(form.elements.doughWeightG?.value);
+  const oz=measured>0?measured/28.349523125:ps6bReference(form.elements.psPopSize.value,depth);
+  $('psEstimateShape').textContent=oz>0?'Piece weight: '+oz.toFixed(2)+' oz ('+(measured>0?'your measurement':'Daisy Makes reference')+'). Yield is calculated from this weight and a flavor’s recorded dough weight during production.':'Enter a measured piece weight or select a supported size and thickness.';
  };
- form.elements.psPopSize.addEventListener('change',refresh);
- form.elements.doughThicknessIn?.addEventListener('input',refresh);
- box.querySelector('#psUseShapeEstimate').addEventListener('click',()=>{const est=refresh();if(est&&est.yield>=1)form.elements.yield.value=est.yield;else alert('Choose a size and one of the standard dough depths to estimate yield.')});
+ ['psPopSize','doughThicknessIn','doughWeightG'].forEach(n=>{form.elements[n]?.addEventListener('input',refresh);form.elements[n]?.addEventListener('change',refresh)});
  refresh();
 };
 const psDepthBeforeSaveShape=saveShape;
@@ -2857,211 +2856,6 @@ saveShape=function(e,x){
   input.value=String(parsed);
  }
  ps6bRefineSave(e,x);
-};
-
-
-/* Fix live yield preview: use entered piece weight ahead of Daisy Makes reference. */
-const psWeightPreviewEdit=editShape;
-editShape=function(x=''){
- psWeightPreviewEdit(x);
- const form=$('dialogBody')?.querySelector('form');if(!form)return;
- const info=form.querySelector('#psEstimateShape');
- const useButton=form.querySelector('#psUseShapeEstimate');
- if(!info)return;
- const refresh=()=>{
-  const size=form.elements.psPopSize?.value||'';
-  const depthText=form.elements.doughThicknessIn?.value?.trim()||'';
-  const depth=depthText?ps6bParseInches(depthText):psDefaultDepth();
-  const grams=Number(form.elements.doughWeightG?.value);
-  const weight=grams>0&&Number.isFinite(grams)?grams/ps6bGramsPerOz:ps6bReference(size,depth);
-  const batchOz=Number(d.settings?.batchDoughOz??19.2);
-  if(!(weight>0)||!(batchOz>0)){
-   info.textContent='Enter a measured weight per pop or select a reference size and thickness to estimate yield.';
-   if(useButton)useButton.disabled=true;
-   return null;
-  }
-  const count=Math.floor(batchOz/weight);
-  const source=grams>0&&Number.isFinite(grams)?'measured piece weight':'Daisy Makes reference';
-  info.textContent='Estimated '+count+' pops from '+batchOz+' oz of dough using '+source+' ('+weight.toFixed(2)+' oz per pop). Your saved yield is not changed unless you choose to use this estimate.';
-  if(useButton)useButton.disabled=count<1;
-  return count;
- };
- ['doughWeightG','doughThicknessIn','psPopSize'].forEach(name=>{
-  form.elements[name]?.addEventListener('input',refresh);
-  form.elements[name]?.addEventListener('change',refresh);
- });
- if(useButton){
-  // Replace the prior reference-only button listener.
-  const newButton=useButton.cloneNode(true);
-  useButton.replaceWith(newButton);
-  newButton.addEventListener('click',()=>{const count=refresh();if(count!==null&&count>=1)form.elements.yield.value=count;});
- }
- refresh();
-};
-
-
-/* Flavors usability: compact saved recipes and progressive ingredient entry. */
-const psFlavorUXRow=ingredientRow;
-ingredientRow=function(p={}){
- psFlavorUXRow(p);
- const host=$('ingredients');const row=host?.lastElementChild;
- if(!row?.classList.contains('ingredient'))return;
- const pricing=row.querySelector('.recipe-only-cost');
- if(pricing&&pricing.tagName!=='DETAILS'){
-  const details=document.createElement('details');
-  details.className='recipe-only-cost';
-  details.style.cssText=pricing.style.cssText;
-  const summary=document.createElement('summary');summary.style.cursor='pointer';summary.textContent='Optional recipe-only pricing';
-  while(pricing.firstChild){
-   const child=pricing.firstChild;
-   if(child.tagName==='STRONG'&&child.textContent.includes('Optional recipe-only pricing')){child.remove();continue;}
-   details.appendChild(child);
-  }
-  details.prepend(summary);
-  if(p.recipeCostPrice||p.recipeCostSizeText||p.recipeCostUnit)details.open=true;
-  pricing.replaceWith(details);
- }
-};
-partRow=ingredientRow;
-const psFlavorUXEdit=editFlavor;
-editFlavor=function(x=''){
- psFlavorUXEdit(x);
- const form=$('dialogBody')?.querySelector('form');if(!form)return;
- const photo=form.querySelector('#recipePhoto');
- const preview=photo?.closest('.pair');
- const ingredientList=form.querySelector('#ingredients');
- const addButton=[...form.querySelectorAll('button')].find(b=>b.textContent.includes('Add ingredient manually'));
- if(!preview||!ingredientList||!addButton)return;
- const photoDetails=document.createElement('details');
- photoDetails.className='card';
- const photoSummary=document.createElement('summary');photoSummary.textContent='Import from photo or screenshot';photoSummary.style.cursor='pointer';
- photoDetails.append(photoSummary,preview);ingredientList.before(photoDetails);
- const manualDetails=document.createElement('details');
- manualDetails.className='card';
- const manualSummary=document.createElement('summary');manualSummary.textContent='Enter or edit ingredients manually';manualSummary.style.cursor='pointer';
- manualDetails.append(manualSummary,ingredientList,addButton);
- photoDetails.after(manualDetails);
- manualDetails.open=!x || !ingredientList.children.length;
- const heading=[...form.querySelectorAll('h3')].find(h=>h.textContent.trim()==='Recipe Ingredients');
- if(heading)heading.textContent='Recipe Ingredients — choose how to enter';
- // Expose the ingredients when a photo import creates new rows.
- const watcher=new MutationObserver(()=>{if(ingredientList.children.length&&photoDetails.open)manualDetails.open=true;});
- watcher.observe(ingredientList,{childList:true});
- const originalOnSubmit=form.onsubmit;
- form.addEventListener('submit',()=>watcher.disconnect(),{once:true});
-};
-const psFlavorUXRender=renderFlavors;
-renderFlavors=function(){
- psFlavorUXRender();
- const root=$('flavors');if(!root)return;
- root.querySelectorAll('.card').forEach(card=>{
-  const row=card.querySelector('.row');
-  const content=row?.nextElementSibling;
-  if(!content||content.tagName==='DETAILS')return;
-  const details=document.createElement('details');
-  const summary=document.createElement('summary');summary.style.cursor='pointer';
-  summary.textContent='View recipe ingredients';
-  details.append(summary,content);
-  row.after(details);
- });
-};
-/* Photo import: upscale and contrast-enhance before OCR; source remains editable for review. */
-recipePhotoChosen=async function(el){
- const file=el.files?.[0];if(!file)return;
- const status=$('photoStatus');const textarea=$('photoText'),preview=$('photoPreview');
- if(!status||!textarea||!preview)return;
- status.textContent='Preparing image for text recognition...';
- const src=URL.createObjectURL(file);
- preview.replaceChildren();
- const img=document.createElement('img');img.src=src;img.alt='Selected recipe';img.style.cssText='max-width:100%;max-height:220px;object-fit:contain';
- preview.append(img);
- try{
-  if(!window.Tesseract)await new Promise((resolve,reject)=>{
-   const script=document.createElement('script');script.src='https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
-   script.onload=resolve;script.onerror=()=>reject(Error('Text recognition library unavailable.'));document.head.append(script);
-  });
-  const image=await new Promise((resolve,reject)=>{const im=new Image();im.onload=()=>resolve(im);im.onerror=()=>reject(Error('Unable to open image'));im.src=src;});
-  const max=2600,scale=Math.min(3,max/Math.max(image.naturalWidth,image.naturalHeight));
-  const canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.round(image.naturalWidth*scale));canvas.height=Math.max(1,Math.round(image.naturalHeight*scale));
-  const ctx=canvas.getContext('2d',{willReadFrequently:true});if(!ctx)throw Error('Image processing unavailable');
-  ctx.drawImage(image,0,0,canvas.width,canvas.height);
-  const pixels=ctx.getImageData(0,0,canvas.width,canvas.height);
-  for(let i=0;i<pixels.data.length;i+=4){
-   const gray=.299*pixels.data[i]+.587*pixels.data[i+1]+.114*pixels.data[i+2];
-   const enhanced=Math.max(0,Math.min(255,(gray-128)*1.35+138));
-   pixels.data[i]=pixels.data[i+1]=pixels.data[i+2]=enhanced;
-  }
-  ctx.putImageData(pixels,0,0);
-  status.textContent='Recognizing ingredients...';
-  const worker=await Tesseract.createWorker('eng');
-  try{
-   const out=await worker.recognize(canvas);
-   textarea.value=(out.data?.text||'').trim();
-   const confidence=Number(out.data?.confidence)||0;
-   status.textContent=textarea.value
-    ?'Text extracted ('+Math.round(confidence)+'% OCR confidence). Review quantities, fractions, ingredients, and units before adding. Nothing is saved automatically.'
-    :'No readable ingredients detected. Try a closer, well-lit, straight-on photo or type the ingredients manually.';
-  }finally{await worker.terminate();}
- }catch(err){status.textContent='Photo reading failed: '+err.message+'. Paste or type the ingredients instead.';}
- finally{URL.revokeObjectURL(src);}
-};
-
-
-/* New ingredient purchase capture: opt-in destinations, never overwrite existing supplies. */
-function psPurchasedNewIngredient(key){
- const row=shopNeeds().find(r=>r.key===key);
- if(!row||row.id)return shopChecklistAction('bought',key);
- const plan=shopCurrentPlan();
- const flavors=plan?[...new Set((plan.lines||[]).map(l=>l.flavor).filter(Boolean))]:[];
- const destinations=flavors.map(rid=>d.recipes.find(r=>r.id===rid)).filter(Boolean)
-  .filter(r=>recipeParts(r).some(p=>normal(p.name)===normal(row.name)));
- modal('Record new ingredient purchase',
- '<p class="muted small">Purchased '+esc(row.name)+'. Enter the package you bought, then choose where its price should be remembered. Your shopping checklist will be marked bought after saving.</p>'+
- '<form onsubmit="psSavePurchasedIngredient(event,\''+encodeURIComponent(key)+'\')">'+
- '<label>Ingredient</label><input value="'+esc(row.name)+'" disabled>'+
- '<div class="formgrid"><div><label>Price paid ($)</label><input name="price" type="number" min="0" step="0.01" required></div>'+
- '<div><label>Amount in purchased package</label><input name="amount" type="text" placeholder="16 or 1/2" required></div></div>'+
- '<label>Package unit</label><input name="unit" placeholder="oz, g, cup, each..." value="'+esc(row.unit)+'" required>'+
- '<label>Remember this purchase in</label><select name="destination">'+
- '<option value="stock">My Stock (recommended)</option>'+
- (destinations.length?'<option value="recipe">Selected order recipes only</option><option value="both">My Stock and selected order recipes</option>':'')+
- '<option value="none">This shopping checklist only</option></select>'+
- '<p class="muted small">My Stock creates a reusable supply with zero stock on hand; it does not automatically count purchased packages as available. Recipe-only pricing changes costing without adding stock. Existing supplies are never overwritten.</p>'+
- '<div class="actions"><button type="submit">Save purchase</button><button type="button" class="alt" onclick="document.getElementById(\'dialog\').close()">Cancel</button></div></form>');
-}
-function psSavePurchasedIngredient(e,encoded){
- e.preventDefault();
- const key=decodeURIComponent(encoded),row=shopNeeds().find(r=>r.key===key),form=e.target;
- if(!row)return alert('This shopping item is no longer available.');
- const price=Number(form.elements.price.value),amount=recipeAmount(form.elements.amount.value.trim());
- const unit=form.elements.unit.value.trim(),destination=form.elements.destination.value;
- if(!Number.isFinite(price)||price<0||!(amount>0)||!unit)return alert('Enter a valid price, positive package amount and unit.');
- const plan=shopCurrentPlan();
- const recipes=plan?[...new Set((plan.lines||[]).map(l=>l.flavor).filter(Boolean))].map(rid=>d.recipes.find(r=>r.id===rid)).filter(Boolean):[];
- if((destination==='stock'||destination==='both')&&!d.items.some(i=>normal(i.name)===normal(row.name))){
-  const type=d.categories.find(c=>!isShapeCategory(c))?.id||'';
-  const item={id:id(),name:row.name,type,qty:0,unit,packageCost:price,packageSize:amount,packageUnit:unit,min:0,restock:0};
-  d.items.push(item);
-  if(typeof psPriceTrack==='function')psPriceTrack(item,'shopping');
- }
- if(destination==='recipe'||destination==='both'){
-  for(const recipe of recipes){
-   for(const p of recipe.parts||[]){
-    const name=p.name||d.items.find(i=>i.id===p.id)?.name||'';
-    if(normal(name)!==normal(row.name))continue;
-    p.recipeCostPrice=String(price);p.recipeCostSize=amount;p.recipeCostSizeText=form.elements.amount.value.trim();p.recipeCostUnit=unit;
-   }
-  }
- }
- if(destination!=='none'&&destination!=='recipe'&&destination!=='both'&&destination!=='stock')return;
- const listKey=shopKey(),state=d.shoppingChecklists[listKey]||{bought:{},archived:false};
- state.bought[key]=true;state.archived=false;d.shoppingChecklists[listKey]=state;
- save();$('dialog').close();renderShopping();
-}
-const psNewIngredientChecklistAction=shopChecklistAction;
-shopChecklistAction=function(action,key){
- if(action==='bought'&&shopNeeds().some(r=>r.key===key&&!r.id))return psPurchasedNewIngredient(key);
- return psNewIngredientChecklistAction(action,key);
 };
 
 
