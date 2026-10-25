@@ -3204,4 +3204,33 @@ function psEmergencyRecovery(error){
  root.prepend(wrap);
 }
 
+
+/* Order editor: prioritize planning flavors and collapse optional freezer reservations. */
+const psOrderFirstEditPlan=editPlan;
+editPlan=function(kind,x=''){
+ psOrderFirstEditPlan(kind,x);
+ if(kind!=='orders')return;
+ const form=$('dialogBody')?.querySelector('form'),lines=form?.querySelector('#planlines'),reservations=form?.querySelector('#allocations');
+ if(!form||!lines||!reservations)return;
+ const addFlavor=[...form.querySelectorAll('button')].find(b=>b.textContent.trim().includes('Add flavor'));
+ const reserveButton=[...form.querySelectorAll('button')].find(b=>b.textContent.trim().includes('Reserve frozen pops'));
+ const heading=[...form.querySelectorAll('h3')].find(h=>h.textContent.includes('Reserve finished freezer pops'));
+ if(!addFlavor||!reserveButton||!heading)return;
+ const description=heading.nextElementSibling;
+ const existing=reservations.querySelectorAll('.allocation').length;
+ const details=document.createElement('details');details.className='card';
+ const summary=document.createElement('summary');summary.style.cursor='pointer';
+ summary.innerHTML='<strong>Reserve frozen pops (optional)</strong>'+ (existing?' <span class="muted small">('+existing+' already reserved)</span>':'');
+ details.append(summary);
+ const note=document.createElement('p');note.className='muted small';
+ note.textContent='Only use this if you already have finished pops in your freezer. Frozen reservations reduce the number you need to make fresh.';
+ details.append(note,reservations,reserveButton);
+ heading.remove();
+ if(description&&description.tagName==='P'&&description.textContent.includes('Reserve pops already made'))description.remove();
+ addFlavor.insertAdjacentElement('afterend',details);
+ // Keep reservations collapsed when first opening or reopening the order.
+ details.open=false;
+ reserveButton.addEventListener('click',()=>{summary.innerHTML='<strong>Reserve frozen pops (optional)</strong> <span class="muted small">('+reservations.querySelectorAll('.allocation').length+' selected)</span>';});
+};
+
 try{render();psWelcomeFirstLaunch()}catch(psError){window.psShowStartupError?.(psError?.stack||psError?.message||psError);psEmergencyRecovery(psError)}if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
