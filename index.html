@@ -334,7 +334,7 @@ function requirements(lines){let out={};for(let l of lines||[]){let r=d.recipes.
 function checkRows(lines){return requirements(lines).map(p=>{let i=matchSupply(p),have=Number(i?.qty)||0;return {...p,supply:i,have,buy:Math.max(0,p.required-have),missing:!i}})}
 function stockReport(lines){let rows=checkRows(lines);return rows.length?rows.map(p=>`${p.name}: need ${fmt(p.required)} ${p.unit}, ${p.missing?'not in Supplies':`have ${fmt(p.have)}`}${p.buy>0?`, buy ${fmt(p.buy)}`:', enough in stock'}`).join('\n'):'No recipe ingredients found. Check your selected shapes and recipes.'}
 const oldRenderPlansRecipes=renderPlans;
-renderPlans=function(kind){oldRenderPlansRecipes(kind);for(let p of d[kind]){let card=[...$(kind).querySelectorAll('.card')].find(c=>c.querySelector(`button[onclick="editPlan('${kind}','${p.id}')"]`));if(!card)continue;let rows=checkRows(freshLines(p));let lacking=rows.filter(v=>v.buy>0);card.insertAdjacentHTML('beforeend',`<div class="notice ${lacking.length?'warning':''}">${!rows.length?'No recipe ingredients to check.':lacking.length?`${lacking.length} ingredient(s) need shopping or adding to Supplies.`:'Ingredients available in stock.'}<div class="actions"><button class="alt" onclick="alert(stockReport(freshLines(d['${kind}'].find(p=>p.id==='${p.id}'))))">View ingredient check</button><button class="alt" onclick="shoppingPlanKind='${kind}';shoppingPlanId='${p.id}';go('shopping')">Shopping list</button></div></div>`)} };
+renderPlans=function(kind){oldRenderPlansRecipes(kind);for(let p of d[kind]){let card=[...$(kind).querySelectorAll('.card')].find(c=>c.querySelector(`button[onclick="editPlan('${kind}','${p.id}')"]`));if(!card)continue;let rows=checkRows(freshLines(p));let lacking=rows.filter(v=>v.buy>0);card.insertAdjacentHTML('beforeend',`<div class="notice ${lacking.length?'warning':''}">${!rows.length?'No recipe ingredients to check.':lacking.length?`${lacking.length} ingredient(s) need shopping or adding to Supplies.`:'Ingredients available in stock.'}<div class="actions"><button class="alt" onclick="psShowIngredientCheck('${kind}','${p.id}')">View ingredient check</button><button class="alt" onclick="shoppingPlanKind='${kind}';shoppingPlanId='${p.id}';go('shopping')">Shopping list</button></div></div>`)} };
 let shoppingPlanKind='',shoppingPlanId='';
 renderShopping=function(){let p=d[shoppingPlanKind]?.find(p=>p.id===shoppingPlanId);let general=!p;let rows=general?d.items.filter(i=>!isShapeStockItem(i)&&i.qty<=i.min).map(i=>({name:i.name,unit:i.unit||'pack',required:i.restock??i.min,have:i.qty,buy:Math.max(0,(i.restock??i.min)-i.qty),missing:false})):checkRows(freshLines(p));$('shopping').innerHTML=`<h2>Shopping Lists</h2><div class="card"><label>View list</label><select onchange="shoppingPlanKind=this.value.split(':')[0]||'';shoppingPlanId=this.value.split(':')[1]||'';renderShopping()"><option value="">General restock list</option>${['orders','events'].flatMap(k=>d[k].map(v=>`<option value="${k}:${v.id}" ${shoppingPlanKind===k&&shoppingPlanId===v.id?'selected':''}>${k==='orders'?'Order':'Event'}: ${esc(v.name)}</option>`)).join('')}</select><p class="muted small">${p?'Compares recipe amounts for fresh batches with current Supplies. Missing ingredients are included even if they have never been added to Supplies. No stock is deducted here.':'General low-stock items and restock targets.'}</p></div><div class="card">${rows.length?rows.map(r=>`<div class="item"><div class="row"><strong>${esc(r.name)}</strong><span class="pill">${r.buy>0?'Buy '+fmt(r.buy)+' '+esc(r.unit):'Enough in stock'}</span></div><div class="small muted">${r.missing?'Not in Supplies · ':''}Have ${fmt(r.have)} ${esc(r.unit)} · Need ${fmt(r.required)} ${esc(r.unit)}</div></div>`).join(''):'<p class="muted">Nothing needed on this list.</p>'}</div><button onclick="copyShop()">Copy shopping list</button>`};
 copyShop=function(){let p=d[shoppingPlanKind]?.find(v=>v.id===shoppingPlanId);let rows=p?checkRows(freshLines(p)):d.items.filter(i=>!isShapeStockItem(i)&&i.qty<=i.min).map(i=>({name:i.name,unit:i.unit||'pack',buy:Math.max(0,(i.restock??i.min)-i.qty)}));let s=(p?p.name:'General restock')+'\n'+rows.filter(r=>r.buy>0).map(r=>`${r.name} — buy ${fmt(r.buy)} ${r.unit}`).join('\n');if(navigator.clipboard?.writeText)navigator.clipboard.writeText(s).then(()=>alert('Copied')).catch(()=>prompt('Copy list:',s));else prompt('Copy list:',s)};
@@ -3266,5 +3266,25 @@ editPlan=function(kind,x=''){
  dialog?.addEventListener('close',()=>observer.disconnect(),{once:true});
  explain();
 };
+
+
+/* Readable ingredient check: individual rows with amounts and inventory status. */
+function psShowIngredientCheck(kind,planId){
+ const plan=d[kind]?.find(p=>p.id===planId);
+ if(!plan)return alert('Order or event not found.');
+ const rows=checkRows(freshLines(plan)).slice().sort((a,b)=>String(a.name).localeCompare(String(b.name)));
+ const html=rows.length?'<div style="display:grid;gap:9px">'+rows.map(r=>{
+  const missing=!!r.missing||Number(r.buy)>0;
+  const status=r.missing?(r.unitMismatch?'Inventory unit mismatch':'Not in My Stock'):
+   Number(r.buy)>0?'Buy '+fmt(r.buy)+' '+esc(r.unit):'Enough in stock';
+  return '<div class="card" style="margin:0;padding:12px"><strong>'+esc(r.name)+'</strong>'+
+   '<div class="small" style="margin-top:6px">Needed: <strong>'+fmt(r.required)+' '+esc(r.unit)+'</strong></div>'+
+   '<div class="small">On hand: '+fmt(r.have)+' '+esc(r.unit)+'</div>'+
+   '<div class="small" style="margin-top:3px">'+(missing?'Needs attention: ':'Ready: ')+esc(status)+'</div></div>';
+ }).join('')+'</div>':
+ '<p class="muted">No recipe ingredients found for this plan.</p>';
+ modal('Ingredient Check — '+(plan.name||'Order'),'<p class="muted small">Ingredients needed for the fresh pops in this order, compared with current stock.</p>'+html+
+ '<div class="actions"><button type="button" class="alt" onclick="document.getElementById(\'dialog\').close()">Close</button></div>');
+}
 
 try{render();psWelcomeFirstLaunch()}catch(psError){window.psShowStartupError?.(psError?.stack||psError?.message||psError);psEmergencyRecovery(psError)}if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
