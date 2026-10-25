@@ -3233,4 +3233,38 @@ editPlan=function(kind,x=''){
  reserveButton.addEventListener('click',()=>{summary.innerHTML='<strong>Reserve frozen pops (optional)</strong> <span class="muted small">('+reservations.querySelectorAll('.allocation').length+' selected)</span>';});
 };
 
+
+/* Phase 6C planning visibility: show the provenance of yields beside each order line. */
+const ps6cPlanExplainEdit=editPlan;
+editPlan=function(kind,x=''){
+ ps6cPlanExplainEdit(kind,x);
+ if(kind!=='orders')return;
+ const form=$('dialogBody')?.querySelector('form'),holder=form?.querySelector('#planlines');
+ if(!holder)return;
+ const explain=()=>{
+  holder.querySelectorAll('.planline').forEach(row=>{
+   const flavor=row.querySelector('.flavor')?.value,shapeId=row.querySelector('.shape')?.value;
+   let info=row.querySelector('.ps6c-plan-info');
+   if(!info){info=document.createElement('p');info.className='muted small ps6c-plan-info';row.append(info);}
+   const recipe=d.recipes.find(r=>r.id===flavor),shape=d.shapes.find(s=>s.id===shapeId);
+   if(!recipe||!shape){info.textContent='Select a flavor and shape to see your planning yield.';return;}
+   const records=(d.doughHistory||[]).filter(h=>h.recipeId===flavor&&h.shapeId===shapeId&&h.finishedPops>0&&h.batchCount>0&&!h.exclude);
+   const each=effectiveYield(recipe,{flavor,shape:shapeId});
+   const count=Math.max(0,Number(row.querySelector('.count')?.value)||0);
+   const batches=each>0?Math.ceil(count/each):null;
+   const origin=records.length?'Based on '+records.length+' recorded production '+(records.length===1?'batch':'batches'):
+    shape.popSize==='large'&&shape.yieldKnown===false?'First-time large popper estimate':
+    'Saved shape yield (not yet measured for this flavor)';
+   info.textContent=(each>0?each+' pops per recipe batch · '+batches+' '+(batches===1?'batch':'batches')+' planned':'Yield unknown')+' · '+origin+'.';
+  });
+ };
+ holder.addEventListener('input',explain);
+ holder.addEventListener('change',explain);
+ const observer=new MutationObserver(explain);
+ observer.observe(holder,{childList:true});
+ const dialog=$('dialog');
+ dialog?.addEventListener('close',()=>observer.disconnect(),{once:true});
+ explain();
+};
+
 try{render();psWelcomeFirstLaunch()}catch(psError){window.psShowStartupError?.(psError?.stack||psError?.message||psError);psEmergencyRecovery(psError)}if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
