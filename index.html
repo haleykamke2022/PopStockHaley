@@ -3333,4 +3333,43 @@ complete=function(kind,x){
  if(saveButton)saveButton.textContent='Finish order & save production results';
 };
 
+
+/* Phase 6D: advisory production targets, separate from customer order quantities and stock deductions. */
+const ps6dBeforeEditPlan=editPlan;
+editPlan=function(kind,x=''){
+ ps6dBeforeEditPlan(kind,x);
+ if(kind!=='orders')return;
+ const form=$('dialogBody')?.querySelector('form'),holder=form?.querySelector('#planlines');
+ if(!holder)return;
+ const update=()=>{
+  holder.querySelectorAll('.planline').forEach(row=>{
+   const recipe=d.recipes.find(r=>r.id===row.querySelector('.flavor')?.value);
+   const shape=d.shapes.find(sh=>sh.id===row.querySelector('.shape')?.value);
+   let box=row.querySelector('.ps6d-advice');
+   if(!box){
+    box=document.createElement('details');box.className='ps6d-advice';box.style.marginTop='9px';
+    box.innerHTML='<summary style="cursor:pointer">Production suggestion (optional)</summary><p class="muted small ps6d-text"></p><label>Manual production target (optional; does not change the customer order)</label><input class="ps6d-override" type="number" min="1" step="1" placeholder="Use calculated suggestion"><p class="muted small ps6d-final"></p>';
+    row.append(box);
+   }
+   const text=box.querySelector('.ps6d-text'),result=box.querySelector('.ps6d-final'),override=box.querySelector('.ps6d-override');
+   if(!recipe||!shape){text.textContent='Select a flavor and shape first.';result.textContent='';return;}
+   const qty=Number(row.querySelector('.count')?.value)||0;
+   const depth=Number(recipe.doughDepthOverride)||psDefaultDepth();
+   const piece=ps6cPieceWeight(shape.id,depth),weight=ps6cRecipeWeight(recipe.id);
+   const records=(d.doughHistory||[]).filter(h=>h.recipeId===recipe.id&&h.shapeId===shape.id&&h.finishedPops>0&&h.batchCount>0&&!h.exclude);
+   const yieldCount=records.length?effectiveYield(recipe,{shape:shape.id}):weight&&piece?Math.floor(weight.oz/piece.oz):effectiveYield(recipe,{shape:shape.id});
+   const batches=yieldCount>0?Math.ceil(qty/yieldCount):null;
+   const suggested=batches===null?null:batches*yieldCount;
+   const origin=records.length?'Recorded production history ('+records.length+' '+(records.length===1?'batch':'batches')+')':weight&&piece?weight.source+' and '+piece.source:'Saved shape yield or planning estimate';
+   text.textContent=suggested===null?'A production estimate is unavailable until a shape yield or weight is recorded.':'For '+qty+' ordered pops, '+batches+' recipe '+(batches===1?'batch':'batches')+' could produce about '+suggested+' pops ('+yieldCount+' per batch). '+origin+'.';
+   const custom=Number(override.value);
+   result.textContent=custom>0?'Manual target: '+Math.floor(custom)+' pops. Customer order stays '+qty+'.':'Customer order stays '+qty+' pops. Suggestions do not change ingredient deductions or pricing.';
+  });
+ };
+ holder.addEventListener('input',update);holder.addEventListener('change',update);
+ const obs=new MutationObserver(update);obs.observe(holder,{childList:true});
+ $('dialog')?.addEventListener('close',()=>obs.disconnect(),{once:true});
+ update();
+};
+
 try{render();psWelcomeFirstLaunch()}catch(psError){window.psShowStartupError?.(psError?.stack||psError?.message||psError);psEmergencyRecovery(psError)}if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
