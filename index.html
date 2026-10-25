@@ -3043,4 +3043,70 @@ function ps6cSaveOrderCompletion(e,x){
  $('dialog').close();
 }
 
+
+/* Phase 6C streamlined Plan > Prepare > Finish > Learn. Prep readings are drafts, not historical observations. */
+d.productionDoughDrafts ||= {};
+function ps6cDraftKey(kind,planId,line){return kind+':'+planId+':'+line.flavor+':'+line.shape}
+const ps6cStreamRender=renderProduction;
+renderProduction=function(){
+ ps6cStreamRender();
+ document.querySelectorAll('.ps6c-host').forEach(host=>{
+  const kind=host.dataset.kind,planId=host.dataset.id,plan=d[kind]?.find(p=>p.id===planId);
+  const lines=(plan?.lines||[]).filter(l=>d.recipes.some(r=>r.id===l.flavor)&&d.shapes.some(sh=>sh.id===l.shape));
+  if(!lines.length)return;
+  const chooser=host.querySelector('.ps6c-line'),weight=host.querySelector('.ps6c-weight'),unit=host.querySelector('.ps6c-unit'),batches=host.querySelector('.ps6c-batches');
+  const saveButton=host.querySelector('.ps6c-save');if(!chooser||!weight||!saveButton)return;
+  saveButton.textContent='Save prep weight for completion';
+  // Replace original save handler: prep should not create a history observation.
+  const fresh=saveButton.cloneNode(true);saveButton.replaceWith(fresh);
+  const load=()=>{
+   const line=lines[Number(chooser.value)||0],record=d.productionDoughDrafts[ps6cDraftKey(kind,planId,line)];
+   weight.value=record?.weight??'';unit.value=record?.unit||'oz';batches.value=record?.batches||1;
+   weight.dispatchEvent(new Event('input',{bubbles:true}));
+  };
+  chooser.addEventListener('change',load);
+  fresh.addEventListener('click',()=>{
+   const line=lines[Number(chooser.value)||0],w=Number(weight.value),n=Number(batches.value);
+   if(!(w>0)||!(n>0)){alert('Enter a positive finished dough weight and number of recipe batches.');return}
+   d.productionDoughDrafts[ps6cDraftKey(kind,planId,line)]={weight:w,unit:unit.value,batches:n,date:new Date().toISOString()};
+   save();alert('Prep weight saved. It will be filled in when you complete this order.');
+  });
+  load();
+ });
+};
+const ps6cStreamCompletion=complete;
+complete=function(kind,x){
+ ps6cStreamCompletion(kind,x);
+ if(kind!=='orders')return;
+ const form=$('ps6cCompletion'),plan=d.orders.find(p=>p.id===x);
+ if(!form||!plan)return;
+ const lines=[...new Map((plan.lines||[]).filter(l=>d.recipes.some(r=>r.id===l.flavor)&&d.shapes.some(sh=>sh.id===l.shape)).map(l=>[l.flavor+'|'+l.shape,l])).values()];
+ lines.forEach((line,i)=>{
+  const draft=d.productionDoughDrafts[ps6cDraftKey(kind,x,line)];
+  const count=form.elements['count_'+i],w=form.elements['weight_'+i];
+  if(count){count.required=true;count.previousElementSibling.textContent='How many pops did you actually make?';}
+  if(draft){w.value=draft.weight;form.elements['unit_'+i].value=draft.unit;form.elements['batches_'+i].value=draft.batches;}
+  const record=(d.doughHistory||[]).filter(h=>h.recipeId===line.flavor&&h.shapeId===line.shape&&h.finishedPops>0&&!h.exclude);
+  const hint=document.createElement('p');hint.className='muted small';
+  hint.textContent=record.length?'Planning yield is based on '+record.length+' recorded batch'+(record.length===1?'':'es')+'.':'No completed yield history yet. The first large-popper planning estimate is 20 pops per cake.';
+  count?.after(hint);
+ });
+};
+const ps6cStreamCompleteSave=ps6cSaveOrderCompletion;
+ps6cSaveOrderCompletion=function(e,x){
+ const plan=d.orders.find(p=>p.id===x);
+ if(!plan)return;
+ const lines=[...new Map((plan.lines||[]).filter(l=>d.recipes.some(r=>r.id===l.flavor)&&d.shapes.some(sh=>sh.id===l.shape)).map(l=>[l.flavor+'|'+l.shape,l])).values()];
+ for(let i=0;i<lines.length;i++){
+  if(!(Number(e.target.elements['count_'+i]?.value)>0)){
+   e.preventDefault();alert('Enter how many finished pops you made for each flavor and shape.');return;
+  }
+ }
+ ps6cStreamCompleteSave(e,x);
+ if(plan.status==='Completed'){
+  lines.forEach(l=>delete d.productionDoughDrafts[ps6cDraftKey('orders',x,l)]);
+  save();
+ }
+};
+
 save();render();psWelcomeFirstLaunch();if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
