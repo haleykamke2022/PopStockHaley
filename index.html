@@ -67,6 +67,21 @@ dialog form{min-width:0}
 #psBackToTop{position:fixed;right:16px;bottom:calc(18px + env(safe-area-inset-bottom,0px));z-index:15;border-radius:999px;box-shadow:0 5px 22px #26362d44;padding:11px 16px;min-height:46px}
 #psBackToTop[hidden]{display:none!important}
 @media(min-width:900px){#psBackToTop{right:max(24px,calc((100vw - 850px)/2))}}
+
+/* Phase 6E Step 3: seven primary destinations remain usable on narrow screens. */
+@media(max-width:600px){
+ #nav{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));overflow:visible;align-items:stretch}
+ #nav>button,#nav>.pop-more-wrap{width:100%;min-width:0;flex:none}
+ #nav>button,#nav>.pop-more-wrap>button{padding:10px 3px;min-height:46px;font-size:12px;line-height:1.2;white-space:normal;overflow-wrap:break-word}
+ #nav>.pop-more-wrap{display:flex;align-items:stretch}
+ #nav .pop-more-menu{top:100%;right:0;width:min(310px,94vw)}
+ .production-group .actions button,.ps-order-status-group .actions button{min-height:44px}
+ .production-steps .production-check{width:100%;min-height:44px}
+ dialog .actions{display:grid;grid-template-columns:minmax(0,1fr);gap:9px}
+ dialog .actions button{width:100%;min-width:0}
+ dialog fieldset{min-width:0}
+ dialog .formgrid{grid-template-columns:minmax(0,1fr)}
+}
 </style></head><body><header><img id="brandImage" src="./icons/icon-192.png" alt="App logo"><div><h1>Cake Pop Inventory</h1><small></small></div></header><nav id="nav"></nav><main><section id="home"></section><section id="guide"></section><section id="quotes"></section><section id="production"></section><section id="stock"></section><section id="flavors"></section><section id="orders"></section><section id="events"></section><section id="freezer"></section><section id="shopping"></section><section id="settings"></section><footer>Personal-use app • Saved on this device • Export backups often</footer></main><dialog id="dialog"><div class="row"><h2 id="dialogTitle"></h2><button class="alt" onclick="document.getElementById('dialog').close()">✕</button></div><div id="dialogBody"></div></dialog><script>
 (function(){
  function downloadBackup(){
