@@ -3287,4 +3287,50 @@ function psShowIngredientCheck(kind,planId){
  '<div class="actions"><button type="button" class="alt" onclick="document.getElementById(\'dialog\').close()">Close</button></div>');
 }
 
+
+/* Phase 6C UX: prioritize actual pop counts, hide advanced completion options. */
+const ps6cFriendlyFinishBefore=complete;
+complete=function(kind,x){
+ ps6cFriendlyFinishBefore(kind,x);
+ if(kind!=='orders')return;
+ const form=$('ps6cCompletion');if(!form)return;
+ const sets=[...form.querySelectorAll('fieldset')];
+ const intro=form.querySelector('p.muted');
+ if(intro)intro.textContent='Finish your order in one step: enter the number of pops you actually made. Dough weight is optional and automatically filled from prep when available.';
+ sets.forEach(set=>{
+  const count=set.querySelector('input[name^="count_"]');
+  const weight=set.querySelector('input[name^="weight_"]');
+  const batch=set.querySelector('input[name^="batches_"]');
+  const exclude=set.querySelector('input[name^="exclude_"]');
+  if(!count)return;
+  count.required=true;
+  const countLabel=count.previousElementSibling;
+  if(countLabel?.tagName==='LABEL')countLabel.textContent='How many pops did you actually make?';
+  const countBlock=document.createElement('div');countBlock.className='ps6c-main-count';
+  if(countLabel)countBlock.append(countLabel);
+  countBlock.append(count);
+  set.prepend(countBlock);
+  if(weight){
+   const weightLabel=[...set.querySelectorAll('label')].find(el=>el.textContent.includes('Actual finished dough weight'));
+   if(weightLabel)weightLabel.textContent='Finished dough weight (optional, prefilled from prep)';
+  }
+  const advanced=document.createElement('details');advanced.className='card';
+  advanced.style.marginTop='10px';
+  const summary=document.createElement('summary');summary.style.cursor='pointer';summary.textContent='Advanced batch options (optional)';
+  advanced.append(summary);
+  if(batch){
+   const batchLabel=batch.previousElementSibling;
+   if(batchLabel?.tagName==='LABEL')advanced.append(batchLabel);
+   advanced.append(batch);
+  }
+  if(exclude){
+   const excludeLabel=exclude.closest('label');
+   if(excludeLabel)advanced.append(excludeLabel);
+  }
+  set.append(advanced);
+ });
+ const saveButton=form.querySelector('button[type="submit"]');
+ if(saveButton)saveButton.textContent='Finish order & save production results';
+};
+
 try{render();psWelcomeFirstLaunch()}catch(psError){window.psShowStartupError?.(psError?.stack||psError?.message||psError);psEmergencyRecovery(psError)}if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
