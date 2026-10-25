@@ -3148,4 +3148,57 @@ ps6cSaveOrderCompletion=function(e,x){
  }
 };
 
-try{render();psWelcomeFirstLaunch();save()}catch(psError){window.psShowStartupError?.(psError?.stack||psError?.message||psError)}if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
+
+/* Recovery screen remains available even if a later UI renderer throws. */
+function psEmergencyRecovery(error){
+ const root=document.querySelector('main')||document.body;
+ if(document.getElementById('ps-safe-recovery'))return;
+ const wrap=document.createElement('section');wrap.id='ps-safe-recovery';wrap.style.cssText='display:block;padding:16px;margin:16px;background:white;border:2px solid #a7617b;border-radius:12px;color:#242424';
+ const title=document.createElement('h2');title.textContent='PopStock Safe Recovery';wrap.append(title);
+ const desc=document.createElement('p');desc.textContent='The app could not load its menus. Your existing browser data has not been erased. Export it before importing any backup.';wrap.append(desc);
+ const counts=document.createElement('p');
+ try{counts.textContent='Current browser records: '+['items','recipes','orders','events','shapes'].map(k=>k+': '+(Array.isArray(d[k])?d[k].length:0)).join(' · ');}catch(e){counts.textContent='Cannot read current browser record counts.';}
+ wrap.append(counts);
+ const exportButton=document.createElement('button');exportButton.type='button';exportButton.textContent='Download current browser backup';
+ exportButton.onclick=()=>{
+  try{
+   const raw=localStorage.getItem(NEW);if(!raw){alert('No previous saved browser backup found.');return;}
+   const url=URL.createObjectURL(new Blob([raw],{type:'application/json'}));const a=document.createElement('a');
+   a.href=url;a.download='popstock-before-recovery-'+new Date().toISOString().slice(0,10)+'.json';
+   document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),3000);
+  }catch(e){alert('Backup export error: '+e.message)}
+ };
+ wrap.append(exportButton);
+ const heading=document.createElement('h3');heading.textContent='Restore a verified backup';wrap.append(heading);
+ const explain=document.createElement('p');explain.textContent='Choose a JSON file to preview its record counts first. Import replaces the saved data in this browser only, so export your current copy if it contains information you want to keep.';wrap.append(explain);
+ const file=document.createElement('input');file.type='file';file.accept='.json,application/json';wrap.append(file);
+ const preview=document.createElement('p');wrap.append(preview);
+ const restoreButton=document.createElement('button');restoreButton.type='button';restoreButton.textContent='Restore this backup';restoreButton.disabled=true;wrap.append(restoreButton);
+ let pending=null;
+ file.onchange=async()=>{
+  restoreButton.disabled=true;pending=null;preview.textContent='';
+  try{
+   const obj=JSON.parse(await file.files[0].text());
+   if(!obj||!['items','recipes','orders','events','shapes'].every(k=>Array.isArray(obj[k])))throw Error('This is not a complete PopStock data backup.');
+   const total=['items','recipes','orders','events','shapes'].reduce((n,k)=>n+obj[k].length,0);
+   if(total===0)throw Error('This backup contains no business records and is blocked to protect your data.');
+   pending=obj;preview.textContent='Backup contains: '+['items','recipes','orders','events','shapes'].map(k=>k+': '+obj[k].length).join(' · ');
+   restoreButton.disabled=false;
+  }catch(e){preview.textContent='Cannot use this file: '+e.message;}
+ };
+ restoreButton.onclick=()=>{
+  if(!pending)return;
+  const current=localStorage.getItem(NEW);
+  if(current){
+   try{
+    const old=JSON.parse(current),oldCount=['items','recipes','orders','events','shapes'].reduce((n,k)=>n+(old[k]?.length||0),0);
+    if(oldCount>0&&!confirm('This browser already has '+oldCount+' business records. Have you downloaded its backup? Restoring will replace them.'))return;
+   }catch(e){if(!confirm('Existing browser data could not be read. Restoring will replace it. Continue only if you have a backup.'))return;}
+  }
+  if(!confirm('Restore the previewed PopStock backup in THIS browser?'))return;
+  try{localStorage.setItem(NEW,JSON.stringify(pending));location.reload();}catch(e){alert('Restore failed: '+e.message);}
+ };
+ root.prepend(wrap);
+}
+
+try{render();psWelcomeFirstLaunch()}catch(psError){window.psShowStartupError?.(psError?.stack||psError?.message||psError);psEmergencyRecovery(psError)}if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
