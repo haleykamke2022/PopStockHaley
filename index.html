@@ -3576,4 +3576,34 @@ renderProduction=function(){
  else root.prepend(banner);
 };
 
+
+/* Phase 6E step 2: progressive disclosure of nonessential order/event fields. */
+const ps6eSimpleFormsBefore=editPlan;
+editPlan=function(kind,x=''){
+ ps6eSimpleFormsBefore(kind,x);
+ const form=$('dialogBody')?.querySelector('form');if(!form)return;
+ const wrap=(node,title,open=false)=>{
+  if(!node||node.closest('details.ps6e-optional'))return;
+  const details=document.createElement('details');details.className='card ps6e-optional';details.open=open;
+  const summary=document.createElement('summary');summary.style.cursor='pointer';
+  summary.innerHTML='<strong>'+title+'</strong>';
+  node.before(details);details.append(summary,node);
+ };
+ if(kind==='orders'){
+  const addon=[...form.querySelectorAll('h3')].find(h=>h.textContent.trim()==='Optional custom-order add-ons');
+  if(addon)wrap(addon.closest('.pair'),'Bags & labels (optional)',!!(d.orders.find(p=>p.id===x)?.addBag||d.orders.find(p=>p.id===x)?.addLabel));
+ }
+ if(kind==='events'){
+  const expenseHead=[...form.querySelectorAll('h3')].find(h=>h.textContent.trim()==='Other event expenses');
+  if(expenseHead){
+   const rows=form.querySelector('#eventExpenseRows'),add=rows?.nextElementSibling;
+   const block=document.createElement('div');expenseHead.before(block);block.append(expenseHead);
+   if(rows)block.append(rows);if(add?.tagName==='BUTTON')block.append(add);
+   wrap(block,'Other event expenses (optional)',!!d.events.find(p=>p.id===x)?.expenses?.length);
+  }
+  const selfServe=form.elements.selfServeEvent?.closest('.card');
+  if(selfServe)wrap(selfServe,'Self-serve Pop Stop (optional)',!!d.events.find(p=>p.id===x)?.selfServeEvent);
+ }
+};
+
 try{render();psWelcomeFirstLaunch()}catch(psError){window.psShowStartupError?.(psError?.stack||psError?.message||psError);psEmergencyRecovery(psError)}if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
