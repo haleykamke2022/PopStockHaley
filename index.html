@@ -119,7 +119,7 @@ function renderSettings(){$('settings').innerHTML=`<h2>Customize</h2><div class=
 // Freezer and shape-based yields (backwards-compatible with earlier saved data).
 const fmt=n=>Number.isInteger(n)?String(n):Number(n.toFixed(2)).toString();
 const shapeName=x=>d.shapes.find(s=>s.id===x)?.name||'Choose a popper shape';
-const effectiveYield=(r,l)=>Number(d.shapes.find(s=>s.id===l.shape)?.yield)||0;
+let effectiveYield=(r,l)=>Number(d.shapes.find(s=>s.id===l.shape)?.yield)||0;
 const freeKinds={dough:'Cake Dough',finished:'Finished Cake Pops'};
 const freeUnit={oz:'oz',lb:'lb',g:'g',batch:'batches',pops:'pops'};
 const frozenAvailable=(f,excludePlan='')=>Math.max(0,Number(f.qty)||0);
