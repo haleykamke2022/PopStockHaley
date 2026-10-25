@@ -2308,12 +2308,15 @@ const psBeforeOrganizedSettings=renderSettings;
 renderSettings=function(){
  psBeforeOrganizedSettings();
  const root=$('settings');if(!root)return;
+ const guideComplete=!!d.settings?.setupGuideCompleted||(typeof setupSteps==='function'&&setupSteps().every(step=>step.done));
+ const guide={key:'start',label:'Getting Started'};
  const sections=[
-  {key:'start',label:'Getting Started'},
-  {key:'business',label:'Business'},
+  ...(!guideComplete?[guide]:[]),
+  {key:'general',label:'General & Help'},
   {key:'stock',label:'Stock & Freezer'},
+  {key:'business',label:'Business'},
   {key:'backup',label:'Backups & Data'},
-  {key:'general',label:'General & Help'}
+  ...(guideComplete?[guide]:[])
  ];
  const headings={
   'Getting Started Guide':'start','Getting Started':'start','Home screen reminder':'start',
@@ -2339,14 +2342,14 @@ renderSettings=function(){
     content.className='ps-category-list';
     const categoryRows=[...el.querySelectorAll('.category-sort-row')];
     for(const item of categoryRows)content.appendChild(item);
-    const collapsed=sessionStorage.getItem('ps_stock_categories_collapsed')==='1';
+    const collapsed=true;
     content.hidden=collapsed;toggle.textContent=collapsed?'Expand categories':'Collapse categories';
     toggle.setAttribute('aria-expanded',String(!collapsed));
     toggle.addEventListener('click',()=>{
      content.hidden=!content.hidden;
      toggle.textContent=content.hidden?'Expand categories':'Collapse categories';
      toggle.setAttribute('aria-expanded',String(!content.hidden));
-     try{sessionStorage.setItem('ps_stock_categories_collapsed',content.hidden?'1':'0')}catch{}
+     // Start collapsed the next time Settings is opened.
     });
     row.insertAdjacentElement('afterend',toggle);toggle.insertAdjacentElement('afterend',content);
    }
