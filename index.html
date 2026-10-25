@@ -3164,4 +3164,15 @@ renderProduction=function(){
  });
 };
 
+
+/* Keep dough/yield defaults in the existing Stock & Freezer settings subcategory. */
+const psYieldSettingsBefore=renderSettings;
+renderSettings=function(){
+ psYieldSettingsBefore();
+ const root=$('settings');if(!root)return;
+ const panel=root.querySelector('[data-settings-panel="stock"]');
+ const card=[...root.querySelectorAll('.card')].find(el=>el.querySelector('h3')?.textContent.trim()==='Dough & yield defaults');
+ if(panel&&card&&card.parentElement!==panel)panel.appendChild(card);
+};
+
 save();render();psWelcomeFirstLaunch();if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
