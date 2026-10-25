@@ -3498,4 +3498,62 @@ popSaveActual=function(e,x){
  save();render();
 };
 
+
+/* Personal Pop Stop: self-serve event mode, with no staffed attendance labor. */
+const psSelfServeEditBefore=editPlan;
+editPlan=function(kind,x=''){
+ psSelfServeEditBefore(kind,x);
+ if(kind!=='events')return;
+ const form=$('dialogBody')?.querySelector('form');
+ if(!form)return;
+ const event=d.events.find(p=>p.id===x);
+ const wrapper=document.createElement('div');wrapper.className='card';
+ wrapper.innerHTML='<label style="display:flex;align-items:center;gap:8px"><input type="checkbox" name="selfServeEvent" '+(event?.selfServeEvent?'checked':'')+'> <strong>Self-serve pop-up (unattended)</strong></label><p class="muted small">For an at-home Pop Stop or self-serve cooler. Plan flavors, production and sales as normal, but attendance hours and staffing labor are zero. Time spent baking or preparing still counts as production labor.</p>';
+ form.querySelector('#planlines')?.insertAdjacentElement('beforebegin',wrapper);
+};
+const psSelfServeSaveBefore=savePlan;
+savePlan=function(e,kind,x){
+ if(kind!=='events')return psSelfServeSaveBefore(e,kind,x);
+ const flag=!!e.target.elements.selfServeEvent?.checked;
+ const ids=new Set(d.events.map(p=>p.id));
+ const result=psSelfServeSaveBefore(e,kind,x);
+ const event=x?d.events.find(p=>p.id===x):d.events.find(p=>!ids.has(p.id));
+ if(event&&event.status==='Planned'){
+  event.selfServeEvent=flag;
+  if(flag&&event.report?.actualCosts)event.report.actualCosts.attendanceHours=0;
+  save();render();
+ }
+ return result;
+};
+const psSelfServeProfitEditBefore=psProfitEdit;
+psProfitEdit=function(x){
+ psSelfServeProfitEditBefore(x);
+ const event=d.events.find(p=>p.id===x);
+ if(!event?.selfServeEvent)return;
+ const form=$('dialogBody')?.querySelector('form');
+ const field=form?.elements.attendanceHours;
+ if(!field)return;
+ field.value='0';field.readOnly=true;
+ const label=field.previousElementSibling;
+ if(label?.tagName==='LABEL')label.textContent='Attendance hours — 0 (self-serve)';
+ const note=document.createElement('p');note.className='muted small';
+ note.textContent='Self-serve event: no staffing time charged. Production hours remain editable.';
+ field.insertAdjacentElement('afterend',note);
+};
+const psSelfServeProfitSaveBefore=psProfitSave;
+psProfitSave=function(e,x){
+ const event=d.events.find(p=>p.id===x);
+ if(event?.selfServeEvent&&e.target.elements.attendanceHours)e.target.elements.attendanceHours.value='0';
+ return psSelfServeProfitSaveBefore(e,x);
+};
+const psSelfServeProfitModelBefore=psProfitModel;
+psProfitModel=function(p){
+ if(!p?.selfServeEvent)return psSelfServeProfitModelBefore(p);
+ const costs=p.report?.actualCosts;
+ if(!costs)return psSelfServeProfitModelBefore(p);
+ // Evaluate with attendance set to zero without mutating historical data.
+ const copy={...p,report:{...p.report,actualCosts:{...costs,attendanceHours:0}}};
+ return psSelfServeProfitModelBefore(copy);
+};
+
 try{render();psWelcomeFirstLaunch()}catch(psError){window.psShowStartupError?.(psError?.stack||psError?.message||psError);psEmergencyRecovery(psError)}if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
