@@ -3372,4 +3372,53 @@ editPlan=function(kind,x=''){
  update();
 };
 
+
+/* Phase 6D: real-time planned versus actual counts at order completion. */
+const ps6dBeforeFinishComparison=complete;
+complete=function(kind,x){
+ ps6dBeforeFinishComparison(kind,x);
+ if(kind!=='orders')return;
+ const form=$('ps6cCompletion'),plan=d.orders.find(p=>p.id===x);
+ if(!form||!plan)return;
+ const counts=new Map();
+ (plan.lines||[]).forEach(l=>{
+  const key=l.flavor+'|'+l.shape;
+  counts.set(key,(counts.get(key)||0)+(Number(l.count)||0));
+ });
+ const rows=[...new Map((plan.lines||[]).filter(l=>d.recipes.some(r=>r.id===l.flavor)&&d.shapes.some(sh=>sh.id===l.shape)).map(l=>[l.flavor+'|'+l.shape,l])).values()];
+ const sets=[...form.querySelectorAll('fieldset')];
+ const summaries=[];
+ rows.forEach((line,i)=>{
+  const field=sets[i],input=form.elements['count_'+i];
+  if(!field||!input)return;
+  const planned=counts.get(line.flavor+'|'+line.shape)||0;
+  const box=document.createElement('div');box.className='ps6d-comparison';
+  box.style.cssText='padding:10px;margin:10px 0;border:1px solid #ddd;border-radius:10px';
+  box.innerHTML='<strong>Production comparison</strong><div class="formgrid" style="margin-top:8px"><div>Planned<br><strong class="ps6d-planned"></strong></div><div>Actual<br><strong class="ps6d-actual"></strong></div><div>Difference<br><strong class="ps6d-difference"></strong></div></div>';
+  const countBlock=input.closest('.ps6c-main-count');
+  (countBlock||input).insertAdjacentElement('afterend',box);
+  summaries.push({input,planned,box});
+ });
+ if(!summaries.length)return;
+ const overall=document.createElement('div');overall.className='card';
+ overall.innerHTML='<strong>Order total</strong><p class="ps6d-overall muted small"></p><p class="muted small">Actual counts are saved to production history. This comparison does not alter ordered quantities, costing, stock deductions or freezer quantities.</p>';
+ form.insertBefore(overall,form.querySelector('.actions'));
+ const redraw=()=>{
+  let plannedTotal=0,actualTotal=0,allFilled=true;
+  summaries.forEach(({input,planned,box})=>{
+   const raw=input.value.trim(),actual=raw===''?null:Number(raw),valid=actual!==null&&Number.isInteger(actual)&&actual>=1;
+   plannedTotal+=planned;
+   if(valid)actualTotal+=actual;else allFilled=false;
+   box.querySelector('.ps6d-planned').textContent=planned+' pops';
+   box.querySelector('.ps6d-actual').textContent=valid?actual+' pops':'Not entered';
+   const difference=valid?actual-planned:null;
+   box.querySelector('.ps6d-difference').textContent=difference===null?'—':difference===0?'On target':(difference>0?'+':'')+difference+' pops';
+  });
+  const delta=actualTotal-plannedTotal;
+  overall.querySelector('.ps6d-overall').textContent=allFilled?'Planned '+plannedTotal+' · Actual '+actualTotal+' · '+(delta===0?'On target':(delta>0?'+':'')+delta+' pops'):'Planned '+plannedTotal+' pops · Enter actual counts for every flavor to see the final difference.';
+ };
+ summaries.forEach(v=>v.input.addEventListener('input',redraw));
+ redraw();
+};
+
 try{render();psWelcomeFirstLaunch()}catch(psError){window.psShowStartupError?.(psError?.stack||psError?.message||psError);psEmergencyRecovery(psError)}if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
