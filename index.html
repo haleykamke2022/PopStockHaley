@@ -3681,4 +3681,24 @@ renderGuide=function(){
  if(firstCard)firstCard.before(card);else root.append(card);
 };
 
+
+/* Shape category disclosure state survives editing and re-rendering My Shapes. */
+const psShapeExpandedGroups=new Set();
+const psShapeKeepOpenBefore=renderStock;
+renderStock=function(){
+ psShapeKeepOpenBefore();
+ const container=$('psShapeGroups');
+ if(!container)return;
+ const groups=[...container.querySelectorAll(':scope > details')];
+ const ids=[...d.shapeGroups].sort((a,b)=>a.name.localeCompare(b.name)).map(v=>v.id).concat('');
+ groups.forEach((details,index)=>{
+  const groupId=ids[index];if(groupId===undefined)return;
+  if(psShapeExpandedGroups.has(groupId))details.open=true;
+  details.addEventListener('toggle',()=>{
+   if(details.open)psShapeExpandedGroups.add(groupId);
+   else psShapeExpandedGroups.delete(groupId);
+  });
+ });
+};
+
 try{render();psWelcomeFirstLaunch()}catch(psError){window.psShowStartupError?.(psError?.stack||psError?.message||psError);psEmergencyRecovery(psError)}if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
