@@ -3621,4 +3621,42 @@ editPlan=function(kind,x=''){
  }
 };
 
+
+/* Phase 6E step 4: live completion preview, using saved order counts and prep data. */
+const ps6eBeforeFinishPreview=popFinishOrder;
+popFinishOrder=function(x){
+ ps6eBeforeFinishPreview(x);
+ const p=d.orders.find(v=>v.id===x),form=$('dialogBody')?.querySelector('form');
+ if(!p||!form||!form.querySelector('.pop-actual'))return;
+ const inputs=[...form.querySelectorAll('.pop-actual')];
+ const summary=document.createElement('div');summary.className='notice ps6e-finish-preview';
+ summary.setAttribute('aria-live','polite');
+ const heading=document.createElement('strong');heading.textContent='Production totals';
+ const stats=document.createElement('div');stats.style.marginTop='7px';
+ const hint=document.createElement('p');hint.className='muted small';
+ hint.textContent='Counts are prefilled from the order; adjust only what changed. These are estimates until you confirm Finish.';
+ summary.append(heading,stats,hint);
+ const first=inputs[0]?.closest('.pair');
+ if(first)first.before(summary);
+ const renderTotals=()=>{
+  const planned=(p.lines||[]).reduce((n,l)=>n+(Number(l.count)||0),0);
+  const valid=inputs.every(i=>i.value.trim()!==''&&Number.isInteger(Number(i.value))&&Number(i.value)>=0);
+  if(!valid){stats.textContent='Planned: '+planned+' pops · Enter a whole number of 0 or more for each flavor.';return;}
+  const actual=inputs.reduce((n,i)=>n+Number(i.value),0);
+  const diff=actual-planned;
+  stats.textContent='Planned: '+planned+' · Made: '+actual+' · Difference: '+(diff>0?'+':'')+diff+' pops';
+ };
+ inputs.forEach(i=>{i.addEventListener('input',renderTotals);i.addEventListener('change',renderTotals)});
+ renderTotals();
+ const checklist=[...form.querySelectorAll('.ps6d-step')];
+ if(checklist.length){
+  const field=checklist[0].closest('fieldset');
+  const count=document.createElement('p');count.className='muted small';
+  field?.append(count);
+  const updateSteps=()=>{const n=checklist.filter(c=>c.checked).length;count.textContent=n+' of '+checklist.length+' stages confirmed before completion.'};
+  checklist.forEach(c=>c.addEventListener('change',updateSteps));
+  updateSteps();
+ }
+};
+
 try{render();psWelcomeFirstLaunch()}catch(psError){window.psShowStartupError?.(psError?.stack||psError?.message||psError);psEmergencyRecovery(psError)}if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
