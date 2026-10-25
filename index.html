@@ -3421,4 +3421,81 @@ complete=function(kind,x){
  redraw();
 };
 
+
+/* Phase 6D: make Production a first-class destination, align Orders status sections,
+   and collect production checklist/measurements through the existing stock-safe finish path. */
+if(!popPrimaryTabs.some(v=>v[0]==='production'))popPrimaryTabs.splice(popPrimaryTabs.findIndex(v=>v[0]==='orders')+1,0,['production','Production']);
+const ps6dGroupedPlansBefore=renderPlans;
+renderPlans=function(kind){
+ ps6dGroupedPlansBefore(kind);
+ if(kind!=='orders')return;
+ const root=$('orders');if(!root)return;
+ const cards=[...root.children].filter(el=>el.classList.contains('card'));
+ const byStatus={active:[],planned:[],completed:[]};
+ cards.forEach(card=>{
+  const edit=card.querySelector('button[onclick^="editPlan"]');
+  const match=edit?.getAttribute('onclick')?.match(/editPlan\('orders','([^']+)'\)/);
+  const plan=match&&d.orders.find(p=>p.id===match[1]);
+  if(!plan)return;
+  const key=plan.status==='Completed'?'completed':plan.status==='In progress'?'active':'planned';
+  byStatus[key].push({card,plan});
+ });
+ const group=(title,key)=>{
+  const section=document.createElement('section');
+  section.className='ps-order-status-group';
+  section.style.cssText='display:block;margin:20px 0';
+  const heading=document.createElement('h3');
+  heading.textContent=title+' ('+byStatus[key].length+')';
+  section.append(heading);
+  byStatus[key].sort((a,b)=>String(a.plan.date||'').localeCompare(String(b.plan.date||'')));
+  if(key==='completed')byStatus[key].reverse();
+  byStatus[key].forEach(v=>section.append(v.card));
+  if(!byStatus[key].length){const empty=document.createElement('p');empty.className='muted small';empty.textContent='Nothing here right now.';section.append(empty);}
+  root.append(section);
+ };
+ group('In production','active');group('Planned','planned');group('Completed','completed');
+};
+const ps6dPriorFinishForm=popFinishOrder;
+popFinishOrder=function(x){
+ ps6dPriorFinishForm(x);
+ const form=$('dialogBody')?.querySelector('form');
+ const p=d.orders.find(v=>v.id===x);
+ if(!form||!p||p.status!=='In progress')return;
+ const checklist=document.createElement('fieldset');checklist.className='card';
+ checklist.innerHTML='<legend>Production checklist</legend><p class="muted small">Confirm each production stage before completing this order.</p>'+
+  productionStepNames.map((name,i)=>'<label style="display:block;margin:8px 0"><input class="ps6d-step" type="checkbox" data-step="'+i+'" '+(d.productionSteps[productionRecordKey('orders',x)]?.[i]?'checked':'')+'> '+esc(name)+'</label>').join('');
+ form.insertBefore(checklist,form.querySelector('button[type="submit"],button:not([type])'));
+ const details=document.createElement('details');details.className='card';
+ details.innerHTML='<summary style="cursor:pointer"><strong>Dough weights & batch details (optional)</strong></summary><p class="muted small">Record finished dough weights for more accurate future yield predictions.</p>';
+ (p.lines||[]).forEach((line,i)=>{
+  const draft=d.productionDoughDrafts?.[ps6cDraftKey('orders',x,line)];
+  const el=document.createElement('div');el.className='pair';
+  el.innerHTML='<strong>'+esc(flavorName(line.flavor))+' · '+esc(shapeName(line.shape))+'</strong><label>Finished dough weight (oz)</label><input type="number" min="0.01" step="any" class="ps6d-dough" data-line="'+i+'" value="'+(draft?.weightOz>0?draft.weightOz:'')+'"><label>Recipe batches prepared</label><input type="number" min="0.1" step="any" class="ps6d-batches" data-line="'+i+'" value="'+(draft?.batches>0?draft.batches:1)+'">';
+  details.append(el);
+ });
+ form.insertBefore(details,form.querySelector('button[type="submit"],button:not([type])'));
+};
+const ps6dPriorActualSave=popSaveActual;
+popSaveActual=function(e,x){
+ const p=d.orders.find(v=>v.id===x);
+ const form=e.target;
+ const values=[...form.querySelectorAll('.pop-actual')].map(v=>Number(v.value));
+ const steps=[...form.querySelectorAll('.ps6d-step')].map(v=>v.checked);
+ const weights=[...form.querySelectorAll('.ps6d-dough')].map(v=>v.value.trim());
+ const batches=[...form.querySelectorAll('.ps6d-batches')].map(v=>Number(v.value));
+ if(steps.length&&steps.some(v=>!v)){e.preventDefault();alert('Please confirm all four production stages before finishing, or return to production later.');return;}
+ if(weights.some((v,i)=>v!==''&&(!Number.isFinite(Number(v))||Number(v)<=0))||batches.some(n=>!Number.isFinite(n)||n<=0)){e.preventDefault();alert('Check the optional dough weights and batch quantities.');return;}
+ ps6dPriorActualSave(e,x);
+ if(!p||p.status!=='Completed')return;
+ if(steps.length)d.productionSteps[productionRecordKey('orders',x)]=steps;
+ d.doughHistory ||= [];
+ (p.lines||[]).forEach((line,i)=>{
+  if(!Number.isInteger(values[i])||values[i]<0)return;
+  const exists=d.doughHistory.some(h=>h.planKind==='orders'&&h.planId===x&&h.recipeId===line.flavor&&h.shapeId===line.shape);
+  if(exists)return;
+  d.doughHistory.push({id:id(),recipeId:line.flavor,shapeId:line.shape,planKind:'orders',planId:x,date:new Date().toISOString(),weightOz:weights[i]?Number(weights[i]):null,finishedPops:values[i],batchCount:batches[i]||1,exclude:false});
+ });
+ save();render();
+};
+
 try{render();psWelcomeFirstLaunch()}catch(psError){window.psShowStartupError?.(psError?.stack||psError?.message||psError);psEmergencyRecovery(psError)}if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
