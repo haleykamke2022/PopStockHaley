@@ -2969,4 +2969,78 @@ renderSettings=function(){
  if(panel&&card&&card.parentElement!==panel)panel.appendChild(card);
 };
 
+
+/* Phase 6C: first-use large popper default and measured completion history. */
+const ps6cKnownShapeSave=saveShape;
+saveShape=function(e,x){
+ const entered=Number(e.target.elements.yield?.value);
+ const isNew=!x,large=e.target.elements.psPopSize?.value==='large';
+ ps6cKnownShapeSave(e,x);
+ if(isNew&&large){
+  const sh=d.shapes[d.shapes.length-1];
+  if(sh){sh.yieldKnown=entered!==20;sh.yield=entered>0?entered:20;save();}
+ }
+};
+const ps6cKnownShapeEdit=editShape;
+editShape=function(x=''){
+ ps6cKnownShapeEdit(x);
+ if(x)return;
+ const form=$('dialogBody')?.querySelector('form');
+ if(!form)return;
+ const size=form.elements.psPopSize,yieldField=form.elements.yield;
+ if(!size||!yieldField)return;
+ const hint=document.createElement('p');hint.className='muted small';
+ hint.textContent='New large poppers with unknown yields use 20 pops per full cake as a planning estimate. Record actual yield after production.';
+ size.after(hint);
+ size.addEventListener('change',()=>{if(size.value==='large'&&Number(yieldField.value)===20)hint.hidden=false;else hint.hidden=true;});
+ hint.hidden=size.value!=='large';
+};
+const ps6cKnownEffectiveYield=effectiveYield;
+effectiveYield=function(recipe,line){
+ const shape=d.shapes.find(sh=>sh.id===line.shape);
+ if(!shape)return ps6cKnownEffectiveYield(recipe,line);
+ const records=(d.doughHistory||[]).filter(h=>h.recipeId===recipe.id&&h.shapeId===shape.id&&h.finishedPops>0&&h.batchCount>0&&!h.exclude);
+ if(records.length){
+  return Math.max(1,Math.floor(records.reduce((sum,h)=>sum+h.finishedPops/h.batchCount,0)/records.length));
+ }
+ if(shape.popSize==='large'&&shape.yieldKnown===false)return 20;
+ return ps6cKnownEffectiveYield(recipe,line)||((shape.popSize==='large')?20:0);
+};
+const ps6cBeforeOrderComplete=complete;
+complete=function(kind,x){
+ const p=d[kind]?.find(v=>v.id===x);
+ if(kind!=='orders'||!p||p.status!=='In progress')return ps6cBeforeOrderComplete(kind,x);
+ const lines=(p.lines||[]).filter(l=>d.recipes.some(r=>r.id===l.flavor)&&d.shapes.some(sh=>sh.id===l.shape));
+ if(!lines.length)return ps6cBeforeOrderComplete(kind,x);
+ const unique=[...new Map(lines.map(l=>[l.flavor+'|'+l.shape,l])).values()];
+ const fields=unique.map((l,i)=>'<fieldset class="card"><legend>'+esc(flavorName(l.flavor))+' / '+esc(shapeName(l.shape))+'</legend>'+
+ '<label>Actual finished dough weight (optional)</label><div class="formgrid"><input name="weight_'+i+'" type="number" min="0.01" step="any" placeholder="e.g. 29"><select name="unit_'+i+'"><option value="oz">oz</option><option value="g">grams</option></select></div>'+
+ '<label>Finished shapes made (optional)</label><input name="count_'+i+'" type="number" min="1" step="1" placeholder="e.g. 24">'+
+ '<label>Standard recipe batches prepared</label><input name="batches_'+i+'" type="number" min="0.1" step="any" value="1">'+
+ '<label><input type="checkbox" name="exclude_'+i+'"> Unusual batch (exclude from future averages)</label></fieldset>').join('');
+ modal('Complete order — record actual yield',
+ '<p class="muted small">Capture measurements to improve future estimates for each flavor and shape. Optional: leave blank if not measured. No changes to stock or recipe ingredients.</p>'+
+ '<form id="ps6cCompletion" onsubmit="ps6cSaveOrderCompletion(event,\''+x+'\')">'+fields+
+ '<div class="actions"><button type="submit">Record and finish order</button><button type="button" class="alt" onclick="document.getElementById(\'dialog\').close()">Not yet</button></div></form>');
+};
+function ps6cSaveOrderCompletion(e,x){
+ e.preventDefault();
+ const p=d.orders.find(v=>v.id===x);if(!p||p.status!=='In progress')return;
+ const lines=[...new Map((p.lines||[]).filter(l=>d.recipes.some(r=>r.id===l.flavor)&&d.shapes.some(sh=>sh.id===l.shape)).map(l=>[l.flavor+'|'+l.shape,l])).values()];
+ const newRecords=[];
+ for(let i=0;i<lines.length;i++){
+  const l=lines[i],f=e.target;
+  const rawWeight=f.elements['weight_'+i].value.trim(),rawCount=f.elements['count_'+i].value.trim();
+  const count=Number(rawCount),batches=Number(f.elements['batches_'+i].value);
+  const ounces=Number(rawWeight)/(f.elements['unit_'+i].value==='g'?28.349523125:1);
+  if(!(batches>0)||rawCount&&(!Number.isInteger(count)||count<1)||rawWeight&&!(ounces>0)){alert('Check your weight, finished shape count and recipe batch count.');return}
+  if(rawWeight||rawCount)newRecords.push({id:id(),recipeId:l.flavor,shapeId:l.shape,planKind:'orders',planId:x,date:new Date().toISOString(),weightOz:rawWeight?ounces:null,finishedPops:rawCount?count:null,batchCount:batches,exclude:f.elements['exclude_'+i].checked});
+ }
+ d.doughHistory||=[];
+ // Completion is idempotent: do not duplicate measurements on repeated clicks.
+ d.doughHistory.push(...newRecords);
+ ps6cBeforeOrderComplete('orders',x);
+ $('dialog').close();
+}
+
 save();render();psWelcomeFirstLaunch();if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
