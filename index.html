@@ -69,6 +69,34 @@ dialog form{min-width:0}
 @media(min-width:900px){#psBackToTop{right:max(24px,calc((100vw - 850px)/2))}}
 </style></head><body><header><img id="brandImage" src="./icons/icon-192.png" alt="App logo"><div><h1>Cake Pop Inventory</h1><small></small></div></header><nav id="nav"></nav><main><section id="home"></section><section id="guide"></section><section id="quotes"></section><section id="production"></section><section id="stock"></section><section id="flavors"></section><section id="orders"></section><section id="events"></section><section id="freezer"></section><section id="shopping"></section><section id="settings"></section><footer>Personal-use app • Saved on this device • Export backups often</footer></main><dialog id="dialog"><div class="row"><h2 id="dialogTitle"></h2><button class="alt" onclick="document.getElementById('dialog').close()">✕</button></div><div id="dialogBody"></div></dialog><script>
 (function(){
+ function downloadBackup(){
+  try{
+   var raw=localStorage.getItem('cakepop_custom_v2');
+   if(!raw){alert('No PopStock data found in this browser storage. Your other home-screen app may have separate storage. Do not restore an empty backup.');return;}
+   var data=JSON.parse(raw);
+   var details=['items','recipes','orders','events','shapes'].map(function(k){return k+': '+(Array.isArray(data[k])?data[k].length:'unknown');}).join(', ');
+   if(!confirm('Export this browser copy of PopStock? '+details+'\n\nThis will NOT change or delete any saved data.'))return;
+   var blob=new Blob([raw],{type:'application/json'});
+   var url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='popstock-recovery-'+new Date().toISOString().slice(0,10)+'.json';
+   document.body.appendChild(a);a.click();a.remove();setTimeout(function(){URL.revokeObjectURL(url);},3000);
+  }catch(err){alert('Cannot export storage: '+err.message);}
+ }
+ function recovery(reason){
+  if(document.getElementById('ps-recovery'))return;
+  var div=document.createElement('div');div.id='ps-recovery';div.style.cssText='padding:16px;margin:16px;background:#fff;border:2px solid #ad5b7b;border-radius:12px;color:#302b30;font:15px/1.5 sans-serif';
+  var title=document.createElement('h2');title.textContent='PopStock Recovery';div.appendChild(title);
+  var message=document.createElement('p');message.textContent='The app interface did not load ('+reason+'). Do not remove the home-screen app or clear website data. You can export a read-only copy of this browser\'s saved information.';div.appendChild(message);
+  var button=document.createElement('button');button.type='button';button.textContent='Download saved data from this browser';button.onclick=downloadBackup;div.appendChild(button);
+  var details=document.createElement('p');details.style.fontSize='12px';
+  try{var data=JSON.parse(localStorage.getItem('cakepop_custom_v2')||'null');details.textContent=data?'Local records found: '+['items','recipes','orders','shapes'].map(function(k){return k+' '+(data[k]?.length||0)}).join(' · '):'No saved data found in this browser storage.';}catch(e){details.textContent='Saved data exists but could not be summarized.';}
+  div.appendChild(details);(document.querySelector('main')||document.body).prepend(div);
+ }
+ window.addEventListener('error',function(e){recovery('script error');});
+ window.addEventListener('unhandledrejection',function(){recovery('loading error');});
+ window.addEventListener('load',function(){setTimeout(function(){var nav=document.getElementById('nav');if(!nav||!nav.querySelector('button'))recovery('navigation missing');},900);});
+})();
+</script><script>
+(function(){
  function show(message){
   var id='ps-startup-error';var box=document.getElementById(id);
   if(!box){box=document.createElement('div');box.id=id;box.setAttribute('role','alert');box.style.cssText='margin:18px;padding:16px;border:2px solid #a44;border-radius:12px;background:#fff;color:#402525;font-size:15px;white-space:pre-wrap';(document.querySelector('main')||document.body).prepend(box);}
