@@ -3845,4 +3845,78 @@ renderPlans=function(kind){
  });
 };
 
+
+/* Personal: order-specific decorative supplies, without forced per-piece costing. */
+function psExtraSupplyRow(v={}){
+ const row=document.createElement('div');row.className='pair ps-extra-supply';
+ row.innerHTML='<label>Supply source</label><select class="ps-extra-source"><option value="stock">Use My Stock</option><option value="buy">Need to buy</option></select>'+
+ '<div class="ps-extra-stock"><label>Choose stock item</label><select class="ps-extra-item"><option value="">Select supply</option>'+alpha(d.items.filter(i=>!isShapeStockItem(i))).map(i=>'<option value="'+esc(i.id)+'">'+esc(i.name)+'</option>').join('')+'</select></div>'+
+ '<div class="ps-extra-new"><label>What do you need?</label><input class="ps-extra-name" placeholder="e.g. Gold star sprinkles"></div>'+
+ '<label>Quantity or description (optional)</label><input class="ps-extra-qty" placeholder="e.g. 1 jar, a small amount, 2 molds">'+
+ '<label>Estimated cost for this order ($, optional)</label><input class="ps-extra-cost" type="number" min="0" step="0.01" placeholder="Leave blank if unknown">'+
+ '<label style="font-weight:500"><input class="ps-extra-bought" type="checkbox" style="width:auto"> Already purchased / available</label>'+
+ '<button type="button" class="alt ps-extra-delete">Remove supply</button>';
+ const source=row.querySelector('.ps-extra-source');
+ source.value=v.source||'stock';row.querySelector('.ps-extra-item').value=v.itemId||'';
+ row.querySelector('.ps-extra-name').value=v.name||'';
+ row.querySelector('.ps-extra-qty').value=v.quantity||'';
+ row.querySelector('.ps-extra-cost').value=v.cost??'';
+ row.querySelector('.ps-extra-bought').checked=!!v.bought;
+ const refresh=()=>{row.querySelector('.ps-extra-stock').hidden=source.value!=='stock';row.querySelector('.ps-extra-new').hidden=source.value!=='buy'};
+ source.addEventListener('change',refresh);refresh();
+ row.querySelector('.ps-extra-delete').addEventListener('click',()=>row.remove());
+ $('ps-extra-supply-list')?.append(row);
+}
+const psExtraEditBefore=editPlan;
+editPlan=function(kind,x=''){
+ psExtraEditBefore(kind,x);if(kind!=='orders')return;
+ const form=$('dialogBody')?.querySelector('form'),order=d.orders.find(p=>p.id===x);if(!form)return;
+ const details=document.createElement('details');details.className='card';
+ details.open=!!order?.additionalSupplies?.length;
+ details.innerHTML='<summary style="cursor:pointer"><strong>Additional order supplies (optional)</strong></summary>'+
+ '<p class="muted small">Molds, sprinkles, toppers and other one-off supplies. Choose an existing stock item or note what to purchase. Cost is optional; use a flat estimate for decorations without measuring them. These do not automatically deduct inventory or alter recipe costing.</p>'+
+ '<div id="ps-extra-supply-list"></div><button type="button" class="alt" id="ps-extra-add">+ Add supply</button>';
+ form.querySelector('.actions')?.before(details);
+ details.querySelector('#ps-extra-add').addEventListener('click',()=>psExtraSupplyRow({source:'buy'}));
+ (order?.additionalSupplies||[]).forEach(psExtraSupplyRow);
+};
+const psExtraSaveBefore=savePlan;
+savePlan=function(e,kind,x){
+ if(kind!=='orders')return psExtraSaveBefore(e,kind,x);
+ const rows=[...e.target.querySelectorAll('.ps-extra-supply')],supplies=[];
+ for(const row of rows){
+  const source=row.querySelector('.ps-extra-source').value,itemId=row.querySelector('.ps-extra-item').value;
+  const name=row.querySelector('.ps-extra-name').value.trim(),quantity=row.querySelector('.ps-extra-qty').value.trim();
+  const costRaw=row.querySelector('.ps-extra-cost').value.trim();
+  if(source==='stock'&&!d.items.some(i=>i.id===itemId)){e.preventDefault();alert('Choose a stock item for each My Stock supply.');return;}
+  if(source==='buy'&&!name){e.preventDefault();alert('Name each supply that needs purchasing.');return;}
+  if(costRaw!==''&&(!Number.isFinite(Number(costRaw))||Number(costRaw)<0)){e.preventDefault();alert('Supply cost must be zero or more, or blank.');return;}
+  supplies.push({source,itemId:source==='stock'?itemId:'',name:source==='buy'?name:'',quantity,cost:costRaw===''?null:Number(costRaw),bought:row.querySelector('.ps-extra-bought').checked});
+ }
+ const oldIds=new Set(d.orders.map(p=>p.id));
+ const result=psExtraSaveBefore(e,kind,x);
+ const p=x?d.orders.find(p=>p.id===x):d.orders.find(p=>!oldIds.has(p.id));
+ if(p?.status==='Planned'){p.additionalSupplies=supplies;save();}
+ return result;
+};
+function psExtraSupplyView(x){
+ const p=d.orders.find(v=>v.id===x);if(!p)return;
+ const entries=p.additionalSupplies||[];
+ const lines=entries.map(v=>{
+  const name=v.source==='stock'?(d.items.find(i=>i.id===v.itemId)?.name||'Unavailable stock item'):v.name;
+  return '<div class="item"><strong>'+esc(name)+'</strong><div class="muted small">'+esc(v.quantity||'Quantity not specified')+' · '+(v.source==='stock'?'From My Stock':v.bought?'Purchased':'Need to buy')+(v.cost===null||v.cost===undefined?' · Cost not estimated':' · Estimated '+money(v.cost))+'</div></div>';
+ }).join('');
+ modal('Additional supplies: '+p.name,(lines||'<p class="muted">No additional supplies added.</p>')+'<p class="muted small">These are order planning notes. Costs are informational only; inventory and recipes are unchanged.</p>');
+}
+const psExtraRenderBefore=renderPlans;
+renderPlans=function(kind){
+ psExtraRenderBefore(kind);if(kind!=='orders')return;
+ d.orders.forEach(p=>{
+  const card=[...$('orders').querySelectorAll('.card')].find(c=>c.querySelector('button[onclick="editPlan(\'orders\',\''+p.id+'\')"]'));
+  if(!card||!(p.additionalSupplies||[]).length)return;
+  const b=document.createElement('button');b.type='button';b.className='alt';b.textContent='Additional supplies ('+p.additionalSupplies.length+')';
+  b.addEventListener('click',()=>psExtraSupplyView(p.id));(card.querySelector('.actions')||card).append(b);
+ });
+};
+
 try{render();psWelcomeFirstLaunch()}catch(psError){window.psShowStartupError?.(psError?.stack||psError?.message||psError);psEmergencyRecovery(psError)}if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
