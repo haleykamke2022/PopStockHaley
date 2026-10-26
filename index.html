@@ -3701,4 +3701,55 @@ renderStock=function(){
  });
 };
 
+
+/* Personal-only bulk shape editor. Explicit selection and opt-in fields; no yield or stock changes. */
+function psBulkEditShapes(){
+ const shapes=alpha(d.shapes);
+ if(!shapes.length){alert('Add a popper shape first.');return;}
+ const options=shapes.map(sh=>'<label style="display:flex;align-items:center;gap:10px;margin:0;padding:10px;border-bottom:1px solid #edf1eb;font-weight:500"><input type="checkbox" class="ps-bulk-shape" value="'+esc(sh.id)+'" style="width:20px;min-width:20px;height:20px"><span style="flex:1">'+esc(sh.name)+'</span><span class="muted small">'+esc(d.shapeGroups.find(g=>g.id===sh.shapeGroup)?.name||'Uncategorized')+'</span></label>').join('');
+ const sizeOptions=[['small','Small'],['medium','Medium'],['large','Large'],['xl','Extra Large']];
+ const categoryOptions=d.shapeGroups.slice().sort((a,b)=>a.name.localeCompare(b.name));
+ modal('Bulk edit popper shapes',
+ '<form id="psBulkShapesForm" onsubmit="psSaveBulkShapes(event)">'+
+ '<p class="muted small">Select the shapes to update. Only fields you turn on will change. Other shape details, yields and existing inventory remain as they are.</p>'+
+ '<div class="actions"><button type="button" class="alt" onclick="document.querySelectorAll(\'.ps-bulk-shape\').forEach(el=>el.checked=true);psBulkCount()">Select all</button><button type="button" class="alt" onclick="document.querySelectorAll(\'.ps-bulk-shape\').forEach(el=>el.checked=false);psBulkCount()">Clear selection</button></div>'+
+ '<p id="psBulkCount" class="notice">0 shapes selected</p>'+
+ '<div style="max-height:34vh;overflow-y:auto;border:1px solid #dde6dc;border-radius:12px">'+options+'</div>'+
+ '<h3 style="margin-top:18px">Changes to apply</h3>'+
+ '<label><input type="checkbox" name="changeSize" style="width:auto"> Update popper size</label>'+
+ '<select name="popSize">'+sizeOptions.map(([v,label])=>'<option value="'+v+'">'+label+'</option>').join('')+'</select>'+
+ '<label><input type="checkbox" name="changeStick" style="width:auto"> Update stick type</label>'+
+ '<select name="popStick">'+popPackOptions('stick','')+'</select>'+
+ '<label><input type="checkbox" name="changeCategory" style="width:auto"> Update shape category</label>'+
+ '<select name="shapeGroup"><option value="">Uncategorized</option>'+categoryOptions.map(c=>'<option value="'+esc(c.id)+'">'+esc(c.name)+'</option>').join('')+'</select>'+
+ '<p class="muted small">Stick type uses an existing My Stock supply. Choosing None removes the shape’s assigned stick only if that field is enabled.</p>'+
+ '<div class="actions"><button type="submit">Apply to selected shapes</button><button type="button" class="alt" onclick="$(\'dialog\').close()">Cancel</button></div></form>');
+ const form=$('psBulkShapesForm');
+ form.querySelectorAll('.ps-bulk-shape').forEach(el=>el.addEventListener('change',psBulkCount));
+}
+function psBulkCount(){const n=document.querySelectorAll('#psBulkShapesForm .ps-bulk-shape:checked').length;const label=$('psBulkCount');if(label)label.textContent=n+' '+(n===1?'shape':'shapes')+' selected'}
+function psSaveBulkShapes(e){
+ e.preventDefault();
+ const form=e.target,ids=[...form.querySelectorAll('.ps-bulk-shape:checked')].map(el=>el.value);
+ if(!ids.length){alert('Select at least one shape.');return;}
+ const changeSize=form.elements.changeSize.checked,changeStick=form.elements.changeStick.checked,changeCategory=form.elements.changeCategory.checked;
+ if(!changeSize&&!changeStick&&!changeCategory){alert('Choose at least one field to update.');return;}
+ const size=form.elements.popSize.value,stick=form.elements.popStick.value,group=form.elements.shapeGroup.value;
+ if(changeStick&&stick&&!popPackItems('stick').some(i=>i.id===stick)){alert('The selected stick supply is no longer available.');return;}
+ if(changeCategory&&group&&!d.shapeGroups.some(c=>c.id===group)){alert('The selected shape category is no longer available.');return;}
+ const summary=[changeSize?'size: '+size:'',changeStick?'stick: '+(d.items.find(i=>i.id===stick)?.name||'None'):'',changeCategory?'category: '+(d.shapeGroups.find(c=>c.id===group)?.name||'Uncategorized'):''].filter(Boolean).join(', ');
+ if(!confirm('Update '+ids.length+' shapes?\\n'+summary+'\\nOther details and yields will remain unchanged.'))return;
+ const chosen=new Set(ids);let changed=0;
+ d.shapes.forEach(sh=>{if(!chosen.has(sh.id))return;if(changeSize)sh.popSize=size;if(changeStick)sh.popStick=stick;if(changeCategory)sh.shapeGroup=group;changed++});
+ save();$('dialog').close();render();alert('Updated '+changed+' popper shapes.');
+}
+const psBulkShapesRenderBefore=renderStock;
+renderStock=function(){
+ psBulkShapesRenderBefore();
+ const container=$('psShapeGroups');if(!container)return;
+ const actions=container.querySelector('.actions');if(!actions||actions.querySelector('.ps-bulk-launch'))return;
+ const button=document.createElement('button');button.type='button';button.className='alt ps-bulk-launch';button.textContent='Bulk edit shapes';
+ button.addEventListener('click',psBulkEditShapes);actions.append(button);
+};
+
 try{render();psWelcomeFirstLaunch()}catch(psError){window.psShowStartupError?.(psError?.stack||psError?.message||psError);psEmergencyRecovery(psError)}if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
