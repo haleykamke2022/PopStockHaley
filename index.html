@@ -4040,7 +4040,7 @@ renderPlans=function(kind){
   card.append(results);
   (isPast?past:active).push({card,event});
  });
- const section=document.createElement('section');section.className='ps-events-active';
+ const section=document.createElement('div');section.className='ps-events-active';
  const heading=document.createElement('h3');heading.textContent='Current & Upcoming Events ('+active.length+')';
  section.append(heading);
  if(active.length){
