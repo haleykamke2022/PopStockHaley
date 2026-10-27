@@ -4278,9 +4278,11 @@ renderPlans=function(kind){
  tools.append(search,status,count);first.after(tools);
  const apply=()=>{
   let visible=0;const q=search.value.toLowerCase().trim();
-  const elements=[...root.querySelectorAll('.card')].filter(card=>card!==tools&&[...card.querySelectorAll('button')].some(b=>String(b.getAttribute('onclick')||'').includes("editPlan('"+kind+"','")));
+  const elements=[...root.querySelectorAll('button[onclick]')]
+   .filter(b=>String(b.getAttribute('onclick')||'').startsWith("editPlan('"+kind+"','"))
+   .map(b=>b.closest('.card')).filter((card,i,arr)=>card&&arr.indexOf(card)===i);
   for(const card of elements){
-   const edit=[...card.querySelectorAll('button')].find(b=>String(b.getAttribute('onclick')||'').includes("editPlan('"+kind+"','"));
+   const edit=[...card.querySelectorAll('button[onclick]')].find(b=>String(b.getAttribute('onclick')||'').startsWith("editPlan('"+kind+"','"));
    const id=edit?.getAttribute('onclick')?.split("'")[3];
    const plan=(d[kind]||[]).find(p=>p.id===id);
    if(!plan)continue;
@@ -4288,6 +4290,10 @@ renderPlans=function(kind){
    card.style.display=match?'':'none';if(match)visible++;
   }
   count.textContent=visible+' matching '+kind;
+  if(kind==='events'){
+   const historical=root.querySelector('.ps-events-past');
+   if(historical)historical.style.display='';
+  }
  };
  search.addEventListener('input',apply);status.addEventListener('change',apply);apply();
 };
