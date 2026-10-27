@@ -4066,4 +4066,63 @@ renderPlans=function(kind){
  root.append(section,details);
 };
 
+
+/* Stick choice now belongs to each order/event flavor line. */
+const psStickAddBefore=addLine;
+addLine=function(line={}){
+ psStickAddBefore(line);
+ const row=$('planlines')?.lastElementChild;if(!row)return;
+ const initial=line.stickSupply!==undefined?line.stickSupply:(d.shapes.find(sh=>sh.id===line.shape)?.popStick||'');
+ const box=document.createElement('div');
+ const label=document.createElement('label');label.textContent='Stick type for this flavor';
+ const select=document.createElement('select');select.className='ps-line-stick';
+ select.innerHTML='<option value="">Choose stick type</option><option value="none">No stick</option>'+popPackItems('stick').map(i=>'<option value="'+esc(i.id)+'">'+esc(i.name)+'</option>').join('');
+ select.value=initial||'';box.append(label,select);row.append(box);
+};
+const psStickSaveBefore=savePlan;
+savePlan=function(e,kind,x){
+ if(kind!=='orders'&&kind!=='events')return psStickSaveBefore(e,kind,x);
+ const chosen=[...document.querySelectorAll('#planlines .planline')].map(row=>row.querySelector('.ps-line-stick')?.value||'');
+ if(chosen.some(v=>!v||(v!=='none'&&!d.items.some(i=>i.id===v)))){e.preventDefault();alert('Choose a stick type or No stick for each flavor.');return}
+ const ids=new Set((d[kind]||[]).map(p=>p.id));
+ const result=psStickSaveBefore(e,kind,x);
+ const plan=x?d[kind].find(p=>p.id===x):d[kind].find(p=>!ids.has(p.id));
+ if(plan?.status==='Planned'&&plan.lines?.length===chosen.length){plan.lines.forEach((line,i)=>line.stickSupply=chosen[i]);save();render()}
+ return result;
+};
+addonSticks=function(lines){
+ const list=[],errors=[];
+ for(const line of lines||[]){
+  const shape=d.shapes.find(sh=>sh.id===line.shape);
+  const sid=line.stickSupply!==undefined?line.stickSupply:(shape?.popStick||'');
+  if(!sid||sid==='none')continue;
+  const item=d.items.find(i=>i.id===sid);
+  if(!item){errors.push('Stick supply missing for '+(shape?.name||'a flavor'));continue}
+  const qty=bulkConvertToStock(Number(line.count)||0,'each',item);
+  if(qty===null){errors.push(item.name+': set unit to each or use a pack sized in each');continue}
+  list.push({item,qty});
+ }
+ return {list,errors};
+};
+popPackNeeds=function(lines){return addonSticks(lines).list.map(v=>({supply:v.item,required:v.qty}))};
+const psStickShapeEditBefore=editShape;
+editShape=function(x=''){
+ psStickShapeEditBefore(x);
+ const form=document.querySelector('form[onsubmit^="saveShape"]');
+ const field=form?.elements?.popStick;
+ if(field){field.style.display='none';const label=field.previousElementSibling;if(label?.tagName==='LABEL')label.style.display='none'}
+ const heading=[...(form?.querySelectorAll('h3')||[])].find(el=>el.textContent.includes('Stick supply'));
+ if(heading)heading.textContent='Shape settings';
+};
+const psStickBulkBefore=psBulkEditShapes;
+psBulkEditShapes=function(){
+ psStickBulkBefore();
+ const form=$('psBulkShapesForm');if(!form)return;
+ const box=form.elements.changeStick,select=form.elements.popStick;
+ if(box){box.checked=false;const label=box.closest('label');if(label)label.style.display='none'}
+ if(select)select.style.display='none';
+ const note=[...form.querySelectorAll('p')].find(el=>el.textContent.includes('Stick type uses'));
+ if(note)note.style.display='none';
+};
+
 try{render();psWelcomeFirstLaunch()}catch(psError){window.psShowStartupError?.(psError?.stack||psError?.message||psError);psEmergencyRecovery(psError)}if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
