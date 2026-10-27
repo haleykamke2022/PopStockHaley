@@ -4568,4 +4568,42 @@ costPart=function(part){
  return standard;
 };
 
+
+/* Check stock units against linked recipes before saving the supply. */
+const psStockUnitSaveBefore=saveItem;
+saveItem=function(e,x){
+ const f=e.target;
+ const name=String(f.elements.name?.value||'').trim();
+ const stockUnit=String(f.elements.unit?.value||'').trim();
+ const measure=String(f.elements.packageUnit?.value||stockUnit).trim();
+ const packageSize=Number(f.elements.packageSize?.value||0);
+ const price=Number(f.elements.packageCost?.value||0);
+ const normalized=u=>normal(u).replace(/^(boxes)$/,'box').replace(/^(packs|packages)$/,'pack').replace(/^(bags)$/,'bag');
+ const compatible=(from,to)=>convertedAmount(1,from,to)!==null||normalized(from)===normalized(to);
+ const linked=[];
+ for(const recipe of d.recipes||[]){
+  for(const part of recipeParts(recipe)){
+   if((x&&part.id===x)||(!part.id&&normal(part.name)===normal(name))){
+    const recipeUnit=String(part.unit||'').trim();
+    if(recipeUnit)linked.push({recipe:recipe.name||'Unnamed recipe',unit:recipeUnit});
+   }
+  }
+ }
+ const invalid=[...new Map(linked.filter(v=>{
+  if(compatible(v.unit,measure))return false;
+  // Counted packaging measured as individual pieces also needs explicit matching.
+  return !compatible(v.unit,stockUnit);
+ }).map(v=>[v.recipe+'|'+v.unit,v])).values()];
+ const details=[];
+ if(!stockUnit)details.push('Enter the inventory unit.');
+ if(price>0&&(!measure||!(packageSize>0)))details.push('Enter a valid package size and measurement unit for the purchase price.');
+ if(invalid.length)details.push('Recipe units do not match this stock item:\\n'+invalid.slice(0,8).map(v=>'• '+v.recipe+': '+v.unit).join('\\n')+'\\nStock unit: '+(stockUnit||'(blank)')+'; package measurement: '+(measure||'(blank)')+'.\\nUse compatible units in the stock entry, or update the recipe units.');
+ if(details.length){
+  e.preventDefault();
+  alert('Please fix before saving:\\n\\n'+details.join('\\n\\n'));
+  return;
+ }
+ return psStockUnitSaveBefore(e,x);
+};
+
 try{render();psWelcomeFirstLaunch()}catch(psError){window.psShowStartupError?.(psError?.stack||psError?.message||psError);psEmergencyRecovery(psError)}if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
