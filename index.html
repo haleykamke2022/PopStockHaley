@@ -4253,7 +4253,7 @@ modal=function(title,body){
  const key=title+'|'+(form.getAttribute('onsubmit')||'');
  psDraftContext={key,initial:psDraftFields(form)};
  const draft=psDraftAll()[key];
- if(draft&&confirm('Restore the saved draft for '+title+'?'))psDraftRestore(form,draft.fields||[]);
+ if(draft&&confirm('Restore the saved draft for '+title+'?')){psDraftContext.restored=true;psDraftRestore(form,draft.fields||[])}
 };
 const psDraftDoneBefore=done;
 done=function(){
@@ -4363,8 +4363,10 @@ modal=function(title,body){
   if(flavors.length&&$('psPastFlavorRows')){$('psPastFlavorRows').innerHTML='';flavors.forEach(line=>psPastAddFlavor(line))}
   psDraftRestore(form,draft.fields||[]);
  };
- // Restore repeatable rows only when the user has chosen to restore a draft.
- if(psDraftContext.restored)restore();
+ // Dynamic flavor controls may be appended after modal() returns.
+ if(psDraftContext.restored)queueMicrotask(restore);
 };
+const psUxCloseButton=$('dialog')?.querySelector('.row button');
+if(psUxCloseButton){const replacement=psUxCloseButton.cloneNode(true);psUxCloseButton.replaceWith(replacement);replacement.removeAttribute('onclick');replacement.addEventListener('click',psDraftCloseX)}
 
 try{render();psWelcomeFirstLaunch()}catch(psError){window.psShowStartupError?.(psError?.stack||psError?.message||psError);psEmergencyRecovery(psError)}if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
