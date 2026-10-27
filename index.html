@@ -4500,4 +4500,36 @@ render=function(){
  });
 };
 
+
+/* Search within the currently selected My Stock subcategory, including Shapes. */
+const psStockSearchRenderBefore=renderStock;
+renderStock=function(){
+ psStockSearchRenderBefore();
+ const root=$('stock');
+ if(!root||!selected)return;
+ const header=root.querySelector('h2');if(!header)return;
+ const searchBox=document.createElement('div');searchBox.className='card ps-stock-search';
+ searchBox.style.padding='12px';
+ const input=document.createElement('input');input.type='search';input.placeholder='Search items in this category';input.setAttribute('aria-label','Search stock items');
+ input.autocomplete='off';
+ const result=document.createElement('div');result.className='muted small';
+ searchBox.append(input,result);header.after(searchBox);
+ const isShapes=shapeCategories().some(c=>c.id===selected);
+ const entries=isShapes
+  ? [...root.querySelectorAll('#psShapeGroups .item')].map(el=>({el,name:el.querySelector('strong')?.textContent||el.textContent}))
+  : [...root.querySelectorAll('.card .item')].filter(el=>!el.closest('.ps-stock-search')).map(el=>({el,name:el.querySelector('strong')?.textContent||el.textContent}));
+ const apply=()=>{
+  const term=input.value.trim().toLocaleLowerCase(),matches=entries.filter(v=>v.name.toLocaleLowerCase().includes(term));
+  entries.forEach(v=>{v.el.style.display=v.name.toLocaleLowerCase().includes(term)?'':'none'});
+  result.textContent=matches.length+' of '+entries.length+' items shown';
+  if(isShapes){
+   root.querySelectorAll('#psShapeGroups details').forEach(details=>{
+    if(!term)return;
+    if([...details.querySelectorAll('.item')].some(el=>el.style.display!=='none'))details.open=true;
+   });
+  }
+ };
+ input.addEventListener('input',apply);apply();
+};
+
 try{render();psWelcomeFirstLaunch()}catch(psError){window.psShowStartupError?.(psError?.stack||psError?.message||psError);psEmergencyRecovery(psError)}if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
