@@ -4263,4 +4263,108 @@ done=function(){
 const psDraftX=$('dialog')?.querySelector('.row button');
 if(psDraftX){psDraftX.removeAttribute('onclick');psDraftX.addEventListener('click',psDraftCloseX)}
 
+
+/* Usability consolidation: dashboard, filters, helpful defaults, and complete line drafts. */
+const psUxRenderPlansBefore=renderPlans;
+renderPlans=function(kind){
+ psUxRenderPlansBefore(kind);
+ if(!['orders','events'].includes(kind))return;
+ const root=$(kind),first=root.querySelector('.row');if(!first)return;
+ const tools=document.createElement('div');tools.className='card ps-ux-filter';tools.style.padding='12px';
+ const search=document.createElement('input');search.type='search';search.placeholder='Search '+kind+' by name';search.setAttribute('aria-label','Search '+kind);
+ const status=document.createElement('select');status.setAttribute('aria-label','Filter status');
+ ['All statuses','Planned','In progress','Completed'].forEach(v=>{const o=document.createElement('option');o.value=v;o.textContent=v;status.append(o)});
+ const count=document.createElement('div');count.className='small muted';
+ tools.append(search,status,count);first.after(tools);
+ const apply=()=>{
+  let visible=0;const q=search.value.toLowerCase().trim();
+  const elements=[...root.querySelectorAll('.card')].filter(card=>card!==tools&&[...card.querySelectorAll('button')].some(b=>String(b.getAttribute('onclick')||'').includes("editPlan('"+kind+"','")));
+  for(const card of elements){
+   const edit=[...card.querySelectorAll('button')].find(b=>String(b.getAttribute('onclick')||'').includes("editPlan('"+kind+"','"));
+   const id=edit?.getAttribute('onclick')?.split("'")[3];
+   const plan=(d[kind]||[]).find(p=>p.id===id);
+   if(!plan)continue;
+   const match=(plan.name||plan.customer||'').toLowerCase().includes(q)&&(status.value==='All statuses'||(plan.status||'Planned')===status.value);
+   card.style.display=match?'':'none';if(match)visible++;
+  }
+  count.textContent=visible+' matching '+kind;
+ };
+ search.addEventListener('input',apply);status.addEventListener('change',apply);apply();
+};
+const psUxHomeBefore=renderHome;
+renderHome=function(){
+ psUxHomeBefore();
+ const root=$('home');if(!root)return;
+ const drafts=Object.entries(psDraftAll()).sort((a,b)=>String(b[1].savedAt||'').localeCompare(String(a[1].savedAt||'')));
+ const card=document.createElement('div');card.className='card';card.id='psContinueWorking';
+ const heading=document.createElement('h3');heading.textContent='Continue working';
+ card.append(heading);
+ if(!drafts.length){const empty=document.createElement('p');empty.className='muted small';empty.textContent='No unfinished drafts on this device.';card.append(empty)}
+ drafts.slice(0,5).forEach(([key,draft])=>{
+  const line=document.createElement('div');line.className='item row';
+  const name=document.createElement('div');const strong=document.createElement('strong');strong.textContent=draft.title||'Untitled draft';
+  const saved=document.createElement('div');saved.className='small muted';saved.textContent='Saved '+(draft.savedAt?new Date(draft.savedAt).toLocaleDateString():'on this device');
+  name.append(strong,saved);
+  const button=document.createElement('button');button.type='button';button.className='alt';button.textContent='Open section';
+  button.addEventListener('click',()=>{
+   const title=String(draft.title||'').toLowerCase();
+   go(title.includes('event')?'events':title.includes('order')?'orders':title.includes('shape')||title.includes('stock')?'stock':title.includes('quote')||title.includes('estimate')?'quotes':'home');
+   alert('Open the matching entry form to restore this draft.');
+  });
+  line.append(name,button);card.append(line);
+ });
+ const actions=root.querySelector('.home-actions')?.closest('.card');
+ if(actions)actions.after(card);else root.prepend(card);
+};
+const psUxModalBefore=modal;
+modal=function(title,body){
+ psUxModalBefore(title,body);
+ const form=$('dialogBody')?.querySelector('form');if(!form)return;
+ const sections=[...form.querySelectorAll('.pair')].filter(el=>el.querySelector('h3')&&/optional|additional|advanced/i.test(el.querySelector('h3').textContent||''));
+ sections.forEach(el=>{
+  if(el.closest('details'))return;
+  const details=document.createElement('details');details.className='ps-ux-optional';details.style.margin='12px 0';
+  const summary=document.createElement('summary');summary.textContent=el.querySelector('h3').textContent;summary.style.cursor='pointer';
+  el.before(details);details.append(summary,el);
+ });
+};
+const psUxDraftCloseBefore=psDraftCloseX;
+psDraftCloseX=function(){
+ const form=$('dialogBody')?.querySelector('form');
+ if(form&&psDraftContext){
+  // Keep both normal controls and dynamically added repeatable form rows.
+  psDraftContext.repeatable={
+   planLines:[...form.querySelectorAll('#planlines .planline')].map(el=>({
+    flavor:el.querySelector('.flavor')?.value||'',count:Number(el.querySelector('.count')?.value)||0,
+    shape:el.querySelector('.shape')?.value||'',stickSupply:el.querySelector('.ps-line-stick')?.value||''
+   })),
+   pastFlavors:[...form.querySelectorAll('#psPastFlavorRows .ps-past-flavor-row')].map(el=>({
+    flavor:el.querySelector('.ps-past-flavor')?.value||'',brought:Number(el.querySelector('.ps-past-brought')?.value)||0,
+    sold:Number(el.querySelector('.ps-past-sold')?.value)||0
+   }))
+  };
+ }
+ const key=psDraftContext?.key;
+ psUxDraftCloseBefore();
+ if(key&&psDraftContext?.repeatable){
+  const all=psDraftAll();if(all[key]){all[key].repeatable=psDraftContext.repeatable;try{localStorage.setItem(psDraftKey,JSON.stringify(all))}catch{}}
+ }
+};
+const psUxDraftModalBefore=modal;
+modal=function(title,body){
+ psUxDraftModalBefore(title,body);
+ const form=$('dialogBody')?.querySelector('form');if(!form||!psDraftContext)return;
+ const draft=psDraftAll()[psDraftContext.key];
+ if(!draft?.repeatable)return;
+ const restore=()=>{
+  const lines=draft.repeatable.planLines||[];
+  if(lines.length&&$('planlines')){$('planlines').innerHTML='';lines.forEach(line=>addLine(line))}
+  const flavors=draft.repeatable.pastFlavors||[];
+  if(flavors.length&&$('psPastFlavorRows')){$('psPastFlavorRows').innerHTML='';flavors.forEach(line=>psPastAddFlavor(line))}
+  psDraftRestore(form,draft.fields||[]);
+ };
+ // Restore repeatable rows only when the user has chosen to restore a draft.
+ if(psDraftContext.restored)restore();
+};
+
 try{render();psWelcomeFirstLaunch()}catch(psError){window.psShowStartupError?.(psError?.stack||psError?.message||psError);psEmergencyRecovery(psError)}if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
