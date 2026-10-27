@@ -4532,4 +4532,40 @@ renderStock=function(){
  input.addEventListener('input',apply);apply();
 };
 
+
+/* Quote and recipe costing: recognize stocked goods priced per box/pack. */
+const psBoxCostBefore=costPart;
+costPart=function(part){
+ const standard=psBoxCostBefore(part);
+ if(!standard.unknown)return standard;
+ const unit=normal(part.unit||'');
+ const equivalent=u=>{
+  const n=normal(u||'');
+  if(['box','boxes'].includes(n))return 'box';
+  if(['pack','packs','package','packages'].includes(n))return 'pack';
+  if(['bag','bags'].includes(n))return 'bag';
+  if(['each','item','items','unit','units'].includes(n))return 'each';
+  return n;
+ };
+ // Only use this fallback for discrete purchased packages, never for weight/volume conversions.
+ if(!['box','pack','bag','each'].includes(equivalent(unit)))return standard;
+ const possible=(d.items||[]).filter(i=>!isShapeStockItem(i)&&
+  ((part.id&&i.id===part.id)||normal(i.name)===normal(part.name))&&
+  Number(i.packageCost)>0);
+ for(const item of possible){
+  if(equivalent(item.unit)!==equivalent(unit))continue;
+  const packageMeasure=equivalent(item.packageUnit||'');
+  const packageSize=Number(item.packageSize);
+  // Price recorded per one inventory package, even if package measurement
+  // is set to "each" rather than "box"; never assume an unspecified price.
+  if(packageSize===1&&['each','box','pack','bag'].includes(packageMeasure)){
+   return {cost:Number(part.qty)*Number(item.packageCost),unknown:false};
+  }
+  if(packageSize>0&&packageMeasure===equivalent(unit)){
+   return {cost:Number(part.qty)*Number(item.packageCost)/packageSize,unknown:false};
+  }
+ }
+ return standard;
+};
+
 try{render();psWelcomeFirstLaunch()}catch(psError){window.psShowStartupError?.(psError?.stack||psError?.message||psError);psEmergencyRecovery(psError)}if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
