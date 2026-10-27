@@ -4017,8 +4017,27 @@ renderPlans=function(kind){
   const rawDate=String(event.date||event.due||'').slice(0,10);
   const datedPast=/^\d{4}-\d{2}-\d{2}$/.test(rawDate)&&rawDate<today;
   const status=String(event.status||'').trim().toLowerCase();
-  // A completed event belongs to history; an event still in progress stays actionable.
-  const isPast=status==='completed'||(status!=='in progress'&&datedPast);
+  // Date takes precedence over type/status: every dated historical event is past.
+  const isPast=datedPast||status==='completed';
+  (isPast?past:active).push({card,event});
+ });
+ // Include manually recorded historical events, regardless of their category.
+ (d.historicalEvents||[]).forEach(event=>{
+  const date=String(event.date||'').slice(0,10);
+  const isPast=/^\d{4}-\d{2}-\d{2}$/.test(date)&&date<today;
+  const card=document.createElement('div');card.className='card';
+  const line=document.createElement('div');line.className='row';
+  const info=document.createElement('div');
+  const name=document.createElement('strong');name.textContent=event.name||'Untitled event';
+  const detail=document.createElement('div');detail.className='small muted';
+  detail.textContent=[event.date||'No date',event.eventCategory||'Historical event'].join(' · ');
+  info.append(name,detail);
+  const edit=document.createElement('button');edit.type='button';edit.className='alt';edit.textContent='Edit';
+  edit.addEventListener('click',()=>pastEventForm(event.id));
+  line.append(info,edit);card.append(line);
+  const results=document.createElement('div');results.className='small muted';
+  results.textContent='Sold: '+(Number(event.sold)||0)+' / '+(Number(event.brought)||0)+' · Sales: '+money(Number(event.sales)||0);
+  card.append(results);
   (isPast?past:active).push({card,event});
  });
  const section=document.createElement('section');section.className='ps-events-active';
