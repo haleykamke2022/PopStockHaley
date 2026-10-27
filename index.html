@@ -4432,7 +4432,17 @@ function psDraftList(where,limit=100){
   meta.textContent='Draft saved '+(draft.savedAt?new Date(draft.savedAt).toLocaleString():'on this device');
   detail.append(name,meta);
   const open=document.createElement('button');open.type='button';open.className='alt';open.textContent='Resume draft';
-  open.addEventListener('click',()=>psOpenSavedDraft(key));line.append(detail,open);wrap.append(line);
+  open.addEventListener('click',()=>psOpenSavedDraft(key));
+  const del=document.createElement('button');del.type='button';del.className='danger';del.textContent='Delete draft';
+  del.addEventListener('click',()=>{
+   if(!confirm('Delete this saved draft? This cannot be undone. Existing orders, events and other saved records will not be deleted.'))return;
+   const drafts=psDraftAll();if(!Object.prototype.hasOwnProperty.call(drafts,key))return;
+   delete drafts[key];
+   try{localStorage.setItem(psDraftKey,JSON.stringify(drafts))}catch(err){alert('Could not delete draft: '+err.message);return}
+   render();
+  });
+  const actions=document.createElement('div');actions.className='actions';actions.append(open,del);
+  line.append(detail,actions);wrap.append(line);
  });
  return wrap;
 }
