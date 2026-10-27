@@ -4253,7 +4253,7 @@ modal=function(title,body){
  const key=title+'|'+(form.getAttribute('onsubmit')||'');
  psDraftContext={key,initial:psDraftFields(form)};
  const draft=psDraftAll()[key];
- if(draft&&confirm('Restore the saved draft for '+title+'?')){psDraftContext.restored=true;psDraftRestore(form,draft.fields||[])}
+ if(draft&&(psOpeningDraftKey===key||confirm('Restore the saved draft for '+title+'?'))){psDraftContext.restored=true;psDraftRestore(form,draft.fields||[])}
 };
 const psDraftDoneBefore=done;
 done=function(){
@@ -4368,5 +4368,120 @@ modal=function(title,body){
 };
 const psUxCloseButton=$('dialog')?.querySelector('.row button');
 if(psUxCloseButton){const replacement=psUxCloseButton.cloneNode(true);psUxCloseButton.replaceWith(replacement);replacement.removeAttribute('onclick');replacement.addEventListener('click',psDraftCloseX)}
+
+
+/* Drafts appear in their own section and open their saved form directly. */
+let psOpeningDraftKey=null;
+function psDraftTarget(key,draft){
+ const action=String(key).split('|').slice(1).join('|');
+ const title=String(draft.title||'').toLowerCase();
+ if(action.includes("savePlan(event,'orders'")||action.includes('savePlan(event,"orders"'))return 'orders';
+ if(action.includes("savePlan(event,'events'")||action.includes('savePastEvent(')||title.includes('event'))return 'events';
+ if(action.includes('saveItem(')||action.includes('saveShape(')||title.includes('shape')||title.includes('stock'))return 'stock';
+ if(action.includes('saveFlavor(')||title.includes('flavor')||title.includes('recipe'))return 'flavors';
+ if(action.includes('saveCustomerQuote(')||title.includes('estimate')||title.includes('quote'))return 'quotes';
+ if(title.includes('feedback'))return 'feedback';
+ if(title.includes('production'))return 'production';
+ return 'settings';
+}
+function psDraftAction(key,draft){
+ const action=String(key).split('|').slice(1).join('|');
+ const extract=(name)=>{const match=action.match(new RegExp(name+"\\([^)]*\\)"));return match?.[0]||''};
+ let m=action.match(/savePlan\(event,'(orders|events)','([^']*)'\)/);
+ if(m)return ()=>editPlan(m[1],m[2]);
+ m=action.match(/savePastEvent\(event,'([^']*)'\)/);
+ if(m)return ()=>pastEventForm(m[1]);
+ m=action.match(/saveItem\(event,'([^']*)'\)/);
+ if(m)return ()=>editItem(m[1]);
+ m=action.match(/saveFlavor\(event,'([^']*)'\)/);
+ if(m)return ()=>editFlavor(m[1]);
+ m=action.match(/saveShape\(event,'([^']*)'\)/);
+ if(m)return ()=>editShape(m[1]);
+ m=action.match(/(?:saveCustomerQuote|psSaveCustomerQuote)\(event,'([^']*)'\)/);
+ if(m)return ()=>newCustomerQuote(m[1]);
+ const title=String(draft.title||'').toLowerCase();
+ if(title.includes('past event'))return ()=>pastEventForm();
+ if(title.includes('event'))return ()=>editPlan('events');
+ if(title.includes('order'))return ()=>editPlan('orders');
+ if(title.includes('quote')||title.includes('estimate'))return ()=>newCustomerQuote();
+ if(title.includes('stock'))return ()=>editItem();
+ if(title.includes('shape'))return ()=>editShape();
+ if(title.includes('flavor')||title.includes('recipe'))return ()=>editFlavor();
+ return null;
+}
+function psOpenSavedDraft(key){
+ const draft=psDraftAll()[key];if(!draft)return;
+ const open=psDraftAction(key,draft);
+ if(!open){alert('This draft uses a form that cannot be reopened directly yet. Its information has not been deleted.');return}
+ psOpeningDraftKey=key;
+ go(psDraftTarget(key,draft));
+ try{open()}catch(error){psOpeningDraftKey=null;alert('Could not reopen this draft: '+error.message)}
+}
+function psDraftList(where,limit=100){
+ const entries=Object.entries(psDraftAll()).filter(([key,draft])=>!where||psDraftTarget(key,draft)===where)
+   .sort((a,b)=>String(b[1].savedAt||'').localeCompare(String(a[1].savedAt||''))).slice(0,limit);
+ const wrap=document.createElement('div');wrap.className='card ps-draft-list';
+ const heading=document.createElement('h3');heading.textContent=where?'Saved Drafts ('+entries.length+')':'Continue working';
+ wrap.append(heading);
+ if(!entries.length){const empty=document.createElement('p');empty.className='muted small';empty.textContent='No saved drafts here.';wrap.append(empty)}
+ entries.forEach(([key,draft])=>{
+  const line=document.createElement('div');line.className='item row';
+  const detail=document.createElement('div');
+  const name=document.createElement('strong');name.textContent=draft.title||'Untitled draft';
+  const meta=document.createElement('div');meta.className='muted small';
+  meta.textContent='Draft saved '+(draft.savedAt?new Date(draft.savedAt).toLocaleString():'on this device');
+  detail.append(name,meta);
+  const open=document.createElement('button');open.type='button';open.className='alt';open.textContent='Resume draft';
+  open.addEventListener('click',()=>psOpenSavedDraft(key));line.append(detail,open);wrap.append(line);
+ });
+ return wrap;
+}
+const psDirectDraftModalBefore=modal;
+modal=function(title,body){
+ // The existing modal wrapper handles restoring normal fields and dynamic rows.
+ const direct=psOpeningDraftKey;
+ psDirectDraftModalBefore(title,body);
+ if(!direct)return;
+ psOpeningDraftKey=null;
+ const ctx=psDraftContext;
+ const draft=psDraftAll()[direct];
+ if(!ctx||!draft)return;
+ if(ctx.key!==direct){
+  // Preserve the original draft key even if a form's title changed.
+  ctx.key=direct;
+  psDraftRestore($('dialogBody').querySelector('form'),draft.fields||[]);
+  ctx.restored=true;
+ }
+ if(draft.repeatable){
+  queueMicrotask(()=>{
+   const lines=draft.repeatable.planLines||[];
+   if(lines.length&&$('planlines')){$('planlines').innerHTML='';lines.forEach(line=>addLine(line))}
+   const flavors=draft.repeatable.pastFlavors||[];
+   if(flavors.length&&$('psPastFlavorRows')){$('psPastFlavorRows').innerHTML='';flavors.forEach(row=>psPastAddFlavor(row))}
+   const form=$('dialogBody')?.querySelector('form');if(form)psDraftRestore(form,draft.fields||[]);
+  });
+ }
+};
+const psDirectDraftHomeBefore=renderHome;
+renderHome=function(){
+ psDirectDraftHomeBefore();
+ const root=$('home');if(!root)return;
+ const old=root.querySelector('#psContinueWorking');
+ const replacement=psDraftList(null,5);replacement.id='psContinueWorking';
+ if(old)old.replaceWith(replacement);else root.prepend(replacement);
+};
+const psDirectDraftRenderBefore=render;
+render=function(){
+ psDirectDraftRenderBefore();
+ ['orders','events','stock','flavors','quotes','production','feedback','settings'].forEach(name=>{
+  const root=$(name);if(!root)return;
+  root.querySelectorAll('.ps-draft-list').forEach(el=>el.remove());
+  const count=Object.entries(psDraftAll()).filter(([key,v])=>psDraftTarget(key,v)===name).length;
+  if(!count)return;
+  const draftBox=psDraftList(name);
+  const header=root.querySelector('h2,.row');
+  if(header)header.after(draftBox);else root.prepend(draftBox);
+ });
+};
 
 try{render();psWelcomeFirstLaunch()}catch(psError){window.psShowStartupError?.(psError?.stack||psError?.message||psError);psEmergencyRecovery(psError)}if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
