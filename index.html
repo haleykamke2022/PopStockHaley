@@ -4015,7 +4015,7 @@ renderPlans=function(kind){
   const card=cards.find(c=>[...c.querySelectorAll('button')].some(b=>b.getAttribute('onclick')==="editPlan('events','"+event.id+"')"));
   if(!card)return;
   const rawDate=String(event.date||event.due||'').slice(0,10);
-  const datedPast=/^\\d{4}-\\d{2}-\\d{2}$/.test(rawDate)&&rawDate<today;
+  const datedPast=/^\d{4}-\d{2}-\d{2}$/.test(rawDate)&&rawDate<today;
   const status=String(event.status||'').trim().toLowerCase();
   // A completed event belongs to history; an event still in progress stays actionable.
   const isPast=status==='completed'||(status!=='in progress'&&datedPast);
