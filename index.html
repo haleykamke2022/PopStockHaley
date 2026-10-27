@@ -651,7 +651,7 @@ renderPlans=function(kind){popPrevRenderPlans(kind);if(kind!=='orders')return;fo
 // Past events: comparison-only records with no stock or freezer effects.
 d.historicalEvents ||= [];
 function pastEventAsReport(h){
- const made=Number(h.brought)||0,sold=Number(h.sold)||0;
+ const made=h.brought==null?null:Number(h.brought),sold=Number(h.sold)||0;
  return {id:h.id,name:h.name,date:h.date,location:h.location,eventCategory:h.eventCategory,
   vendorFeeEnabled:Number(h.vendorFee)>0,vendorFee:Number(h.vendorFee)||0,
   expenses:Number(h.otherExpenses)>0?[{name:'Recorded event costs',amount:Number(h.otherExpenses)}]:[],
@@ -665,7 +665,7 @@ function pastEventForm(x=''){
  '<label>Event date</label><input name="date" type="date" required value="'+esc(h.date||'')+'">'+
  '<label>Location (optional)</label><input name="location" value="'+esc(h.location||'')+'">'+
  '<label>Event category</label><select name="eventCategory">'+[...eventCategoryNames].sort((a,b)=>a.localeCompare(b)).map(c=>'<option '+((h.eventCategory||'Market / Vendor Event')===c?'selected':'')+'>'+esc(c)+'</option>').join('')+'</select>'+
- '<div class="formgrid"><div><label>Pops brought</label><input name="brought" type="number" min="0" step="1" required value="'+(h.brought??'')+'"></div><div><label>Pops sold</label><input name="sold" type="number" min="0" step="1" required value="'+(h.sold??'')+'"></div></div>'+
+ '<div class="formgrid"><div><label>Pops brought (optional)</label><input name="brought" type="number" min="0" step="1" placeholder="Unknown" value="'+(h.brought??'')+'"></div><div><label>Pops sold</label><input name="sold" type="number" min="0" step="1" required value="'+(h.sold??'')+'"></div></div>'+
  '<label>Top-selling flavor</label><input name="topFlavor" placeholder="e.g. Funfetti" value="'+esc(h.topFlavor||'')+'">'+
  '<div class="formgrid"><div><label>Total event sales ($)</label><input name="sales" type="number" min="0" step="0.01" required value="'+(h.sales??'')+'"></div><div><label>Vendor fee ($)</label><input name="vendorFee" type="number" min="0" step="0.01" value="'+(h.vendorFee??0)+'"></div><div><label>Other event costs ($)</label><input name="otherExpenses" type="number" min="0" step="0.01" value="'+(h.otherExpenses??0)+'"></div></div>'+
  '<label>Notes / what sold well (optional)</label><textarea name="notes" rows="3">'+esc(h.notes||'')+'</textarea>'+
@@ -675,8 +675,8 @@ function pastEventForm(x=''){
 function savePastEvent(e,x){
  e.preventDefault();const f=e.target;
  const int=n=>Number(f.elements[n].value);
- const n=int('brought'),sold=int('sold');
- if(!Number.isInteger(n)||n<0||!Number.isInteger(sold)||sold<0||sold>n){alert('Pops brought and sold must be whole numbers, and sold cannot exceed brought.');return}
+ const broughtText=f.elements.brought.value.trim(),n=broughtText===''?null:Number(broughtText),sold=int('sold');
+ if((n!==null&&(!Number.isInteger(n)||n<0))||!Number.isInteger(sold)||sold<0||(n!==null&&sold>n)){alert('Enter valid whole numbers. Sold cannot exceed brought when brought is known.');return}
  const moneyFields=['sales','vendorFee','otherExpenses'];if(moneyFields.some(k=>!Number.isFinite(int(k))||int(k)<0)){alert('Sales and costs must be valid non-negative amounts.');return}
  const record={id:x||id(),name:f.elements.name.value.trim(),date:f.elements.date.value,location:f.elements.location.value.trim(),eventCategory:f.elements.eventCategory.value,
   brought:n,sold,topFlavor:f.elements.topFlavor.value.trim(),sales:int('sales'),vendorFee:int('vendorFee'),otherExpenses:int('otherExpenses'),notes:f.elements.notes.value.trim()};
@@ -704,7 +704,7 @@ renderBusiness=function(){
  const history=document.createElement('div');history.className='card';
  history.innerHTML='<h3>Past events</h3><p class="muted small">Add past event results manually without changing stock. They count toward year-end totals and event comparisons.</p><button type="button" onclick="pastEventForm()">+ Add past event</button>'+
  (alpha(d.historicalEvents).map(h=>
- '<div class="item row"><div><strong>'+esc(h.name)+'</strong><div class="small muted">'+esc(h.date)+' · '+h.sold+'/'+h.brought+' sold · '+money(h.sales)+'</div></div><button type="button" class="alt" onclick="pastEventForm(\''+h.id+'\')">Edit</button></div>').join('')||'<p class="muted">No past events recorded yet.</p>');
+ '<div class="item row"><div><strong>'+esc(h.name)+'</strong><div class="small muted">'+esc(h.date)+' · '+h.sold+' sold'+(h.brought==null?'':' / '+h.brought+' brought')+' · '+money(h.sales)+'</div></div><button type="button" class="alt" onclick="pastEventForm(\''+h.id+'\')">Edit</button></div>').join('')||'<p class="muted">No past events recorded yet.</p>');
  const compare=[...section.querySelectorAll('h3')].find(h=>h.textContent.includes('Compare completed events'));
  const comparisonCard=compare?.closest('.card');
  if(comparisonCard){
@@ -4036,7 +4036,7 @@ renderPlans=function(kind){
   edit.addEventListener('click',()=>pastEventForm(event.id));
   line.append(info,edit);card.append(line);
   const results=document.createElement('div');results.className='small muted';
-  results.textContent='Sold: '+(Number(event.sold)||0)+' / '+(Number(event.brought)||0)+' · Sales: '+money(Number(event.sales)||0);
+  results.textContent='Sold: '+(Number(event.sold)||0)+(event.brought==null?' (brought unknown)':' / '+Number(event.brought)+' brought')+' · Sales: '+money(Number(event.sales)||0);
   card.append(results);
   (isPast?past:active).push({card,event});
  });
@@ -4141,8 +4141,8 @@ function psPastFlavorRow(row={}){
  suggestions.id=listId;fi.setAttribute('list',listId);
  names.forEach(name=>{const o=document.createElement('option');o.value=name;suggestions.append(o)});
  flavor.append(fl,fi,suggestions);
- const bl=document.createElement('label');bl.textContent='Brought';
- const bi=document.createElement('input');bi.className='ps-past-brought';bi.type='number';bi.min='0';bi.step='1';bi.value=row.brought??0;brought.append(bl,bi);
+ const bl=document.createElement('label');bl.textContent='Brought (optional)';
+ const bi=document.createElement('input');bi.className='ps-past-brought';bi.type='number';bi.min='0';bi.step='1';bi.placeholder='Unknown';bi.value=row.brought??'';brought.append(bl,bi);
  const sl=document.createElement('label');sl.textContent='Sold';
  const si=document.createElement('input');si.className='ps-past-sold';si.type='number';si.min='0';si.step='1';si.value=row.sold??0;sold.append(sl,si);
  grid.append(flavor,brought,sold);holder.append(grid);
@@ -4156,7 +4156,7 @@ function psPastRefreshTotals(){
  if(!rows.length)return;
  const form=$('dialogBody')?.querySelector('form');if(!form)return;
  const sum=selector=>rows.reduce((n,row)=>n+(Number(row.querySelector(selector)?.value)||0),0);
- form.elements.brought.value=sum('.ps-past-brought');
+ form.elements.brought.value=rows.every(row=>row.querySelector('.ps-past-brought')?.value.trim()!=='')?sum('.ps-past-brought'):'';
  form.elements.sold.value=sum('.ps-past-sold');
 }
 function psPastAddFlavor(row={}){
@@ -4173,7 +4173,7 @@ pastEventForm=function(x=''){
  const box=document.createElement('div');box.className='pair';
  const title=document.createElement('h3');title.textContent='Pops by flavor';
  const hint=document.createElement('p');hint.className='muted small';
- hint.textContent='Add each flavor and enter how many you brought and sold. Totals above update automatically. This does not change inventory.';
+ hint.textContent='Enter pops sold for each flavor. Leave Brought blank if unknown. Totals update automatically; inventory is not changed.';
  const rows=document.createElement('div');rows.id='psPastFlavorRows';
  const button=document.createElement('button');button.type='button';button.className='alt';button.textContent='+ Add flavor';button.addEventListener('click',()=>psPastAddFlavor());
  box.append(title,hint,rows,button);top.before(box);
@@ -4188,14 +4188,14 @@ savePastEvent=function(e,x){
  const f=e.target,rows=[...f.querySelectorAll('#psPastFlavorRows .ps-past-flavor-row')];
  const results=rows.map(row=>({
   flavor:row.querySelector('.ps-past-flavor').value.trim(),
-  brought:Number(row.querySelector('.ps-past-brought').value),
+  brought:row.querySelector('.ps-past-brought').value.trim()===''?null:Number(row.querySelector('.ps-past-brought').value),
   sold:Number(row.querySelector('.ps-past-sold').value)
  }));
- if(results.some(r=>!r.flavor||!Number.isInteger(r.brought)||r.brought<0||!Number.isInteger(r.sold)||r.sold<0||r.sold>r.brought)){
-  e.preventDefault();alert('Each flavor needs a name and valid whole-number quantities. Sold cannot exceed brought.');return;
+ if(results.some(r=>!r.flavor||(r.brought!==null&&(!Number.isInteger(r.brought)||r.brought<0))||!Number.isInteger(r.sold)||r.sold<0||(r.brought!==null&&r.sold>r.brought))){
+  e.preventDefault();alert('Each flavor needs a name and valid sold quantity. Brought may be blank, but if entered cannot be less than sold.');return;
  }
  if(results.length){
-  f.elements.brought.value=results.reduce((n,r)=>n+r.brought,0);
+  f.elements.brought.value=results.every(r=>r.brought!==null)?results.reduce((n,r)=>n+r.brought,0):'';
   f.elements.sold.value=results.reduce((n,r)=>n+r.sold,0);
  }else if(!x){
   e.preventDefault();alert('Add at least one flavor for this past event.');return;
@@ -4209,7 +4209,7 @@ const psPastFlavorReportBefore=pastEventAsReport;
 pastEventAsReport=function(h){
  const report=psPastFlavorReportBefore(h);
  if(Array.isArray(h.flavorResults)&&h.flavorResults.length){
-  report.report.rows=h.flavorResults.map(r=>({flavor:r.flavor,shape:'',made:Number(r.brought)||0,sold:Number(r.sold)||0,frozen:0,other:0}));
+  report.report.rows=h.flavorResults.map(r=>({flavor:r.flavor,shape:'',made:r.brought==null?null:Number(r.brought),sold:Number(r.sold)||0,frozen:0,other:0}));
  }
  return report;
 };
@@ -4339,7 +4339,7 @@ psDraftCloseX=function(){
     shape:el.querySelector('.shape')?.value||'',stickSupply:el.querySelector('.ps-line-stick')?.value||''
    })),
    pastFlavors:[...form.querySelectorAll('#psPastFlavorRows .ps-past-flavor-row')].map(el=>({
-    flavor:el.querySelector('.ps-past-flavor')?.value||'',brought:Number(el.querySelector('.ps-past-brought')?.value)||0,
+    flavor:el.querySelector('.ps-past-flavor')?.value||'',brought:el.querySelector('.ps-past-brought')?.value.trim()===''?null:Number(el.querySelector('.ps-past-brought')?.value),
     sold:Number(el.querySelector('.ps-past-sold')?.value)||0
    }))
   };
