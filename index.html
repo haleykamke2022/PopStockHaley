@@ -4606,4 +4606,58 @@ saveItem=function(e,x){
  return psStockUnitSaveBefore(e,x);
 };
 
+
+/* Simplified Stock measurement UI: one visible unit, optional advanced conversion. */
+const psSimpleStockEditBefore=editItem;
+editItem=function(x='',cat=''){
+ psSimpleStockEditBefore(x,cat);
+ const form=$('dialogBody')?.querySelector('form');if(!form)return;
+ const stock=form.elements.unit,measure=form.elements.packageUnit,size=form.elements.packageSize,price=form.elements.packageCost;
+ if(!stock||!measure||!size||!price)return;
+ const existing=(d.items||[]).find(i=>i.id===x)||{};
+ const same=normal(existing.unit||stock.value)===normal(existing.packageUnit||existing.unit||stock.value);
+ const stockLabel=stock.previousElementSibling;
+ if(stockLabel?.tagName==='LABEL')stockLabel.style.display='none';
+ stock.style.display='none';stock.setAttribute('aria-hidden','true');
+ const measureLabel=measure.previousElementSibling;
+ if(measureLabel?.tagName==='LABEL')measureLabel.textContent='Unit';
+ const costHeading=[...form.querySelectorAll('h3')].find(el=>/purchase cost/i.test(el.textContent||''));
+ const description=costHeading?.nextElementSibling;
+ if(description?.tagName==='P')description.textContent='Enter what you paid and how much you purchased. Use the same unit for stock tracking and pricing.';
+ const sizeLabel=size.previousElementSibling;if(sizeLabel?.tagName==='LABEL')sizeLabel.textContent='Quantity purchased';
+ const priceLabel=price.previousElementSibling;if(priceLabel?.tagName==='LABEL')priceLabel.textContent='Purchase price ($)';
+ const advanced=document.createElement('details');advanced.className='ps-stock-advanced';advanced.style.marginTop='12px';
+ const summary=document.createElement('summary');summary.textContent='Advanced measurements (different inventory unit)';summary.style.cursor='pointer';
+ const advancedHelp=document.createElement('p');advancedHelp.className='muted small';
+ advancedHelp.textContent='Only use this if you count your inventory in a different unit from the purchase amount.';
+ const advancedUnit=document.createElement('input');advancedUnit.type='text';advancedUnit.setAttribute('aria-label','Inventory tracking unit');
+ advancedUnit.value=stock.value;
+ const advancedLabel=document.createElement('label');advancedLabel.textContent='Inventory tracking unit';
+ advanced.append(summary,advancedHelp,advancedLabel,advancedUnit);
+ advanced.open=!!existing.id&&!same;
+ const preview=document.createElement('p');preview.className='notice small';preview.setAttribute('aria-live','polite');
+ const sync=()=>{
+  if(!advanced.open)stock.value=measure.value.trim();
+  else stock.value=advancedUnit.value.trim();
+  const cost=Number(price.value),quantity=Number(size.value);
+  preview.textContent=cost>0&&quantity>0?'Estimated cost per '+(measure.value.trim()||'unit')+': '+money(cost/quantity):'Enter purchase price and quantity purchased to calculate unit cost.';
+ };
+ measure.addEventListener('input',sync);advancedUnit.addEventListener('input',sync);
+ price.addEventListener('input',sync);size.addEventListener('input',sync);
+ advanced.addEventListener('toggle',sync);
+ const actions=form.querySelector('.actions');
+ if(actions){actions.before(advanced,preview)}else form.append(advanced,preview);
+ sync();
+};
+const psSimpleStockSaveBefore=saveItem;
+saveItem=function(e,x){
+ const f=e.target,measure=f.elements.packageUnit,stock=f.elements.unit;
+ const advanced=f.querySelector('.ps-stock-advanced');
+ if(measure&&stock&&advanced&&!advanced.open)stock.value=measure.value.trim();
+ if(measure&& !measure.value.trim()){
+  e.preventDefault();alert('Choose a unit for the quantity purchased.');measure.focus();return;
+ }
+ return psSimpleStockSaveBefore(e,x);
+};
+
 try{render();psWelcomeFirstLaunch()}catch(psError){window.psShowStartupError?.(psError?.stack||psError?.message||psError);psEmergencyRecovery(psError)}if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
