@@ -3919,4 +3919,85 @@ renderPlans=function(kind){
  });
 };
 
+
+/* Customer-facing estimate sharing and print-ready planned order documents. */
+function psCustomerBrand(){return d.settings?.businessName||d.businessName||'PopStock'}
+function psEstimateLines(q){
+ return [psCustomerBrand(),'CUSTOMER ESTIMATE','Customer: '+(q.customer||'Customer'),
+ 'Flavor: '+flavorName(q.flavor),'Shape: '+shapeName(q.shape),
+ 'Quantity: '+q.count+' pops','Price per pop: '+money(Number(q.price)||0),
+ 'Estimated total: '+money(Number(q.count||0)*Number(q.price||0)),
+ q.notes?'Notes: '+q.notes:'','Estimate only; order not confirmed.'].filter(Boolean).join('\n');
+}
+function psCustomerPrint(title,fields,notes,footer){
+ const w=window.open('','_blank');
+ if(!w){alert('Allow pop-ups to create the printable document.');return;}
+ const rows=fields.map(pair=>'<div class="line"><span>'+esc(String(pair[0]))+'</span><strong>'+esc(String(pair[1]))+'</strong></div>').join('');
+ const page='<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>'+esc(title)+'</title>'+
+ '<style>body{font:15px system-ui,Arial,sans-serif;color:#273b30;background:white;margin:0;padding:35px;line-height:1.5}main{max-width:740px;margin:auto}header{border-bottom:2px solid #899d86;padding-bottom:20px;margin-bottom:20px}h1{font:700 29px Georgia,serif;margin:0 0 8px}h2{font-size:21px;margin:0}.line{display:flex;justify-content:space-between;gap:20px;border-bottom:1px solid #ddd;padding:12px 0}.line strong{text-align:right}.note{white-space:pre-wrap;background:#f6f8f5;padding:15px;margin-top:18px}.muted{font-size:12px;color:#65736a;margin-top:22px}button{padding:12px 18px;background:#436047;color:white;border:0;border-radius:8px}@media print{body{padding:12px}.print{display:none}}</style></head>'+
+ '<body><main><div class="print"><button onclick="window.print()">Print / Save as PDF</button></div><header><h1>'+esc(psCustomerBrand())+'</h1><h2>'+esc(title)+'</h2></header>'+rows+
+ (notes?'<div class="note"><strong>Notes</strong><div>'+esc(notes)+'</div></div>':'')+'<p class="muted">'+esc(footer)+'</p></main></body></html>';
+ w.document.open();w.document.write(page);w.document.close();w.focus();
+}
+function psQuotePrint(idValue){
+ const q=d.customerQuotes.find(v=>v.id===idValue);if(!q)return;
+ psCustomerPrint('Customer Estimate',[
+ ['Customer',q.customer||'Customer'],['Flavor',flavorName(q.flavor)],
+ ['Shape',shapeName(q.shape)],['Quantity',q.count+' pops'],
+ ['Price per pop',money(Number(q.price)||0)],['Estimated total',money(Number(q.count||0)*Number(q.price||0))]
+ ],q.notes||'','Estimate only. Order details are not confirmed.');
+}
+async function psQuoteShare(idValue){
+ const q=d.customerQuotes.find(v=>v.id===idValue);if(!q)return;
+ const message=psEstimateLines(q);
+ try{
+  if(navigator.share){await navigator.share({title:'Customer Estimate',text:message});return;}
+  if(navigator.clipboard?.writeText){await navigator.clipboard.writeText(message);alert('Copied estimate. Paste it into your customer message.');return;}
+ }catch(err){if(err?.name==='AbortError')return;}
+ prompt('Copy estimate:',message);
+}
+function psSetQuoteStatus(idValue,status){
+ const q=d.customerQuotes.find(v=>v.id===idValue);
+ if(!q||!['Draft','Sent','Accepted'].includes(status))return;
+ q.customerStatus=status;save();render();
+}
+function psPlannedOrderPrint(idValue){
+ const p=d.orders.find(v=>v.id===idValue);if(!p||p.status!=='Planned')return;
+ const fields=[['Customer / Order',p.name||'Untitled'],['Due date',p.date||'Not set'],['Status','Planned']];
+ (p.lines||[]).forEach((line,index)=>fields.push(['Item '+(index+1),flavorName(line.flavor)+' / '+shapeName(line.shape)+' / '+line.count+' pops']));
+ fields.push(['Total planned pops',String((p.lines||[]).reduce((n,line)=>n+(Number(line.count)||0),0))]);
+ if(p.quotedTotal!==null&&p.quotedTotal!==undefined)fields.push(['Quoted total',money(Number(p.quotedTotal))]);
+ psCustomerPrint('Planned Order',fields,p.orderNotes||'','Planning copy. Internal recipe costs and inventory are not included.');
+}
+const psDocQuotesBefore=renderQuotes;
+renderQuotes=function(){
+ psDocQuotesBefore();
+ const root=$('quotes');if(!root)return;
+ root.querySelectorAll('[data-quote-edit]').forEach(edit=>{
+  const identifier=edit.dataset.quoteEdit,q=d.customerQuotes.find(v=>v.id===identifier);
+  const card=edit.closest('.card'),actions=edit.closest('.actions');
+  if(!q||!card||!actions)return;
+  const pill=card.querySelector('.pill');if(pill)pill.textContent=q.customerStatus||'Draft';
+  const add=(name,action)=>{const b=document.createElement('button');b.type='button';b.className='alt';b.textContent=name;b.addEventListener('click',action);actions.append(b)};
+  add('Share / Copy',()=>psQuoteShare(identifier));
+  add('Save estimate PDF',()=>psQuotePrint(identifier));
+  const select=document.createElement('select');select.setAttribute('aria-label','Estimate status');select.style.width='auto';
+  ['Draft','Sent','Accepted'].forEach(name=>{const option=document.createElement('option');option.value=name;option.textContent=name;option.selected===(q.customerStatus||'Draft');select.append(option)});
+  select.addEventListener('change',()=>psSetQuoteStatus(identifier,select.value));actions.append(select);
+ });
+};
+const psDocOrdersBefore=renderPlans;
+renderPlans=function(kind){
+ psDocOrdersBefore(kind);if(kind!=='orders')return;
+ const root=$('orders');if(!root)return;
+ d.orders.filter(p=>p.status==='Planned').forEach(p=>{
+  const cards=[...root.querySelectorAll('.card')];
+  const card=cards.find(c=>[...c.querySelectorAll('button')].some(b=>b.getAttribute('onclick')==="editPlan('orders','"+p.id+"')"));
+  if(!card)return;
+  const actions=card.querySelector('.actions')||card;
+  const button=document.createElement('button');button.type='button';button.className='alt';button.textContent='Save order PDF';
+  button.addEventListener('click',()=>psPlannedOrderPrint(p.id));actions.append(button);
+ });
+};
+
 try{render();psWelcomeFirstLaunch()}catch(psError){window.psShowStartupError?.(psError?.stack||psError?.message||psError);psEmergencyRecovery(psError)}if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
