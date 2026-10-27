@@ -4214,4 +4214,53 @@ pastEventAsReport=function(h){
  return report;
 };
 
+
+/* Non-destructive unfinished-form drafts, prompted only by the dialog X. */
+const psDraftKey='popstock_form_drafts_v1';
+let psDraftContext=null;
+function psDraftAll(){try{return JSON.parse(localStorage.getItem(psDraftKey)||'{}')||{}}catch{return {}}}
+function psDraftFields(form){
+ return [...form.querySelectorAll('input,select,textarea')].filter(el=>el.type!=='file'&&el.type!=='button'&&el.type!=='submit'&&el.type!=='hidden')
+  .map((el,i)=>({name:el.name||'',className:el.className||'',type:el.type,index:i,value:el.type==='checkbox'||el.type==='radio'?el.checked:el.value}));
+}
+function psDraftRestore(form,fields){
+ const els=[...form.querySelectorAll('input,select,textarea')].filter(el=>el.type!=='file'&&el.type!=='button'&&el.type!=='submit'&&el.type!=='hidden');
+ fields.forEach(f=>{const el=els[f.index];if(!el||el.type!==f.type)return;
+ if(el.type==='checkbox'||el.type==='radio')el.checked=!!f.value;else el.value=f.value;
+ el.dispatchEvent(new Event('change',{bubbles:false}));
+ });
+}
+function psDraftCloseX(){
+ const dialog=$('dialog'),form=dialog.querySelector('#dialogBody form');
+ if(!form){dialog.close();return}
+ const key=psDraftContext?.key;
+ const fields=psDraftFields(form),initial=psDraftContext?.initial||[];
+ const changed=JSON.stringify(fields)!==JSON.stringify(initial);
+ if(!changed){dialog.close();return}
+ const answer=confirm('Save this unfinished entry as a draft?\\n\\nOK = Save Draft\\nCancel = More options');
+ if(answer){
+  const drafts=psDraftAll();drafts[key]={title:$('dialogTitle').textContent,fields,savedAt:new Date().toISOString()};
+  try{localStorage.setItem(psDraftKey,JSON.stringify(drafts))}catch{alert('Unable to store draft on this device. The entry will stay open.');return}
+  dialog.close();return;
+ }
+ if(confirm('Discard changes and close?\\n\\nOK = Discard\\nCancel = Keep editing'))dialog.close();
+}
+const psDraftModalBefore=modal;
+modal=function(title,body){
+ psDraftModalBefore(title,body);
+ const form=$('dialogBody')?.querySelector('form');
+ if(!form){psDraftContext=null;return}
+ const key=title+'|'+(form.getAttribute('onsubmit')||'');
+ psDraftContext={key,initial:psDraftFields(form)};
+ const draft=psDraftAll()[key];
+ if(draft&&confirm('Restore the saved draft for '+title+'?'))psDraftRestore(form,draft.fields||[]);
+};
+const psDraftDoneBefore=done;
+done=function(){
+ if(psDraftContext?.key){const all=psDraftAll();delete all[psDraftContext.key];try{localStorage.setItem(psDraftKey,JSON.stringify(all))}catch{}}
+ psDraftContext=null;return psDraftDoneBefore();
+};
+const psDraftX=$('dialog')?.querySelector('.row button');
+if(psDraftX){psDraftX.removeAttribute('onclick');psDraftX.addEventListener('click',psDraftCloseX)}
+
 try{render();psWelcomeFirstLaunch()}catch(psError){window.psShowStartupError?.(psError?.stack||psError?.message||psError);psEmergencyRecovery(psError)}if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
