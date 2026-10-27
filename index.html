@@ -4001,34 +4001,50 @@ renderPlans=function(kind){
 };
 
 
-/* Personal Events: separate past events in a collapsed, non-destructive archive. */
+/* Personal Events: presentation-only grouping; no changes to stored records. */
 const psPastEventsRenderBefore=renderPlans;
 renderPlans=function(kind){
  psPastEventsRenderBefore(kind);
  if(kind!=='events')return;
  const root=$('events');if(!root)return;
- const allCards=[...root.querySelectorAll('.card')];
- const now=new Date(),today=[now.getFullYear(),String(now.getMonth()+1).padStart(2,'0'),String(now.getDate()).padStart(2,'0')].join('-');
- const past=[],current=[];
+ const now=new Date();
+ const today=[now.getFullYear(),String(now.getMonth()+1).padStart(2,'0'),String(now.getDate()).padStart(2,'0')].join('-');
+ const cards=[...root.querySelectorAll('.card')];
+ const past=[],active=[];
  (d.events||[]).forEach(event=>{
-  const card=allCards.find(c=>[...c.querySelectorAll('button')].some(b=>b.getAttribute('onclick')==="editPlan('events','"+event.id+"')"));
+  const card=cards.find(c=>[...c.querySelectorAll('button')].some(b=>b.getAttribute('onclick')==="editPlan('events','"+event.id+"')"));
   if(!card)return;
   const rawDate=String(event.date||event.due||'').slice(0,10);
-  const isPast=event.status==='Completed'||(/^\d{4}-\d{2}-\d{2}$/.test(rawDate)&&rawDate<today);
-  (isPast?past:current).push({card,event});
+  const datedPast=/^\\d{4}-\\d{2}-\\d{2}$/.test(rawDate)&&rawDate<today;
+  const status=String(event.status||'').trim().toLowerCase();
+  // A completed event belongs to history; an event still in progress stays actionable.
+  const isPast=status==='completed'||(status!=='in progress'&&datedPast);
+  (isPast?past:active).push({card,event});
  });
- if(!past.length)return;
- const heading=document.createElement('h3');heading.textContent='Upcoming & Active Events';
- const first=allCards.find(c=>current.some(v=>v.card===c)||past.some(v=>v.card===c));
- if(first)first.before(heading);
- const details=document.createElement('details');details.className='card';
- details.style.marginTop='18px';
+ const section=document.createElement('section');section.className='ps-events-active';
+ const heading=document.createElement('h3');heading.textContent='Current & Upcoming Events ('+active.length+')';
+ section.append(heading);
+ if(active.length){
+  active.forEach(({card})=>section.append(card));
+ }else{
+  const empty=document.createElement('p');empty.className='muted small';empty.textContent='No current or upcoming events.';
+  section.append(empty);
+ }
+ const details=document.createElement('details');details.className='card ps-events-past';
+ details.style.marginTop='16px';
  const summary=document.createElement('summary');summary.style.cursor='pointer';
- summary.innerHTML='<strong>Past Events ('+past.length+')</strong> <span class="muted small">— expand to view event history</span>';
- details.append(summary);
- past.sort((a,b)=>String(b.event.date||'').localeCompare(String(a.event.date||''))).forEach(v=>details.append(v.card));
- root.append(details);
- if(!current.length)heading.textContent='Upcoming & Active Events (none)';
+ const title=document.createElement('strong');title.textContent='Past Events ('+past.length+')';
+ summary.append(title);
+ const hint=document.createElement('span');hint.className='muted small';hint.textContent=' — expand to view event history';
+ summary.append(hint);details.append(summary);
+ past.sort((a,b)=>String(b.event.date||'').localeCompare(String(a.event.date||'')))
+  .forEach(({card})=>details.append(card));
+ if(!past.length){
+  const empty=document.createElement('p');empty.className='muted small';empty.textContent='No past events yet.';
+  details.append(empty);
+ }
+ // Only rearrange event cards in the DOM; inventory, reports and saved events are untouched.
+ root.append(section,details);
 };
 
 try{render();psWelcomeFirstLaunch()}catch(psError){window.psShowStartupError?.(psError?.stack||psError?.message||psError);psEmergencyRecovery(psError)}if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
