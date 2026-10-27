@@ -4125,4 +4125,93 @@ psBulkEditShapes=function(){
  if(note)note.style.display='none';
 };
 
+
+/* Historical-event flavor breakdown; presentation-only, no inventory deductions. */
+function psPastFlavorRow(row={}){
+ const holder=document.createElement('div');holder.className='card ps-past-flavor-row';
+ holder.style.margin='8px 0';holder.style.padding='10px';
+ const grid=document.createElement('div');grid.className='formgrid';
+ const flavor=document.createElement('div'),brought=document.createElement('div'),sold=document.createElement('div');
+ const fl=document.createElement('label');fl.textContent='Flavor';
+ const fi=document.createElement('input');fi.className='ps-past-flavor';fi.placeholder='e.g. Funfetti';fi.value=row.flavor||'';
+ const suggestions=document.createElement('datalist');suggestions.id='psPastFlavorSuggestions';
+ // Reuse saved flavor names while allowing historical flavors not in Recipes.
+ const names=[...new Set((d.recipes||[]).map(r=>r.name).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
+ const listId='ps-past-flavors-'+Math.random().toString(36).slice(2);
+ suggestions.id=listId;fi.setAttribute('list',listId);
+ names.forEach(name=>{const o=document.createElement('option');o.value=name;suggestions.append(o)});
+ flavor.append(fl,fi,suggestions);
+ const bl=document.createElement('label');bl.textContent='Brought';
+ const bi=document.createElement('input');bi.className='ps-past-brought';bi.type='number';bi.min='0';bi.step='1';bi.value=row.brought??0;brought.append(bl,bi);
+ const sl=document.createElement('label');sl.textContent='Sold';
+ const si=document.createElement('input');si.className='ps-past-sold';si.type='number';si.min='0';si.step='1';si.value=row.sold??0;sold.append(sl,si);
+ grid.append(flavor,brought,sold);holder.append(grid);
+ const remove=document.createElement('button');remove.type='button';remove.className='alt';remove.textContent='Remove flavor';
+ remove.addEventListener('click',()=>{holder.remove();psPastRefreshTotals()});holder.append(remove);
+ for(const input of [bi,si])input.addEventListener('input',psPastRefreshTotals);
+ return holder;
+}
+function psPastRefreshTotals(){
+ const rows=[...document.querySelectorAll('#psPastFlavorRows .ps-past-flavor-row')];
+ if(!rows.length)return;
+ const form=$('dialogBody')?.querySelector('form');if(!form)return;
+ const sum=selector=>rows.reduce((n,row)=>n+(Number(row.querySelector(selector)?.value)||0),0);
+ form.elements.brought.value=sum('.ps-past-brought');
+ form.elements.sold.value=sum('.ps-past-sold');
+}
+function psPastAddFlavor(row={}){
+ const target=$('psPastFlavorRows');if(!target)return;
+ target.append(psPastFlavorRow(row));psPastRefreshTotals();
+}
+const psPastFlavorFormBefore=pastEventForm;
+pastEventForm=function(x=''){
+ psPastFlavorFormBefore(x);
+ const form=$('dialogBody')?.querySelector('form');if(!form)return;
+ const h=(d.historicalEvents||[]).find(v=>v.id===x)||{};
+ const top=[...form.querySelectorAll('label')].find(el=>el.textContent.trim()==='Top-selling flavor');
+ if(!top)return;
+ const box=document.createElement('div');box.className='pair';
+ const title=document.createElement('h3');title.textContent='Pops by flavor';
+ const hint=document.createElement('p');hint.className='muted small';
+ hint.textContent='Add each flavor and enter how many you brought and sold. Totals above update automatically. This does not change inventory.';
+ const rows=document.createElement('div');rows.id='psPastFlavorRows';
+ const button=document.createElement('button');button.type='button';button.className='alt';button.textContent='+ Add flavor';button.addEventListener('click',()=>psPastAddFlavor());
+ box.append(title,hint,rows,button);top.before(box);
+ const existing=Array.isArray(h.flavorResults)?h.flavorResults:[];
+ if(existing.length)existing.forEach(psPastAddFlavor);
+ else if(!x)psPastAddFlavor();
+ // Old records with aggregate counts remain editable until a breakdown is supplied.
+ for(const key of ['brought','sold'])form.elements[key].readOnly=existing.length>0||!x;
+};
+const psPastFlavorSaveBefore=savePastEvent;
+savePastEvent=function(e,x){
+ const f=e.target,rows=[...f.querySelectorAll('#psPastFlavorRows .ps-past-flavor-row')];
+ const results=rows.map(row=>({
+  flavor:row.querySelector('.ps-past-flavor').value.trim(),
+  brought:Number(row.querySelector('.ps-past-brought').value),
+  sold:Number(row.querySelector('.ps-past-sold').value)
+ }));
+ if(results.some(r=>!r.flavor||!Number.isInteger(r.brought)||r.brought<0||!Number.isInteger(r.sold)||r.sold<0||r.sold>r.brought)){
+  e.preventDefault();alert('Each flavor needs a name and valid whole-number quantities. Sold cannot exceed brought.');return;
+ }
+ if(results.length){
+  f.elements.brought.value=results.reduce((n,r)=>n+r.brought,0);
+  f.elements.sold.value=results.reduce((n,r)=>n+r.sold,0);
+ }else if(!x){
+  e.preventDefault();alert('Add at least one flavor for this past event.');return;
+ }
+ const ids=new Set((d.historicalEvents||[]).map(h=>h.id));
+ psPastFlavorSaveBefore(e,x);
+ const record=x?d.historicalEvents.find(h=>h.id===x):d.historicalEvents.find(h=>!ids.has(h.id));
+ if(record){record.flavorResults=results;save()}
+};
+const psPastFlavorReportBefore=pastEventAsReport;
+pastEventAsReport=function(h){
+ const report=psPastFlavorReportBefore(h);
+ if(Array.isArray(h.flavorResults)&&h.flavorResults.length){
+  report.report.rows=h.flavorResults.map(r=>({flavor:r.flavor,shape:'',made:Number(r.brought)||0,sold:Number(r.sold)||0,frozen:0,other:0}));
+ }
+ return report;
+};
+
 try{render();psWelcomeFirstLaunch()}catch(psError){window.psShowStartupError?.(psError?.stack||psError?.message||psError);psEmergencyRecovery(psError)}if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
