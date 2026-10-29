@@ -4876,4 +4876,65 @@ function psRenderPricingAudit(){
 const psAuditBusinessBefore=renderBusiness;
 renderBusiness=function(){psAuditBusinessBefore();psRenderPricingAudit()};
 
+
+/* Reusable molds and popper shapes are equipment, not consumable pricing inputs. */
+function psReusableToolCategory(type){
+ const name=normal((d.categories||[]).find(c=>c.id===type)?.name||type);
+ return /^(molds?|moulds?|popper shapes?|shapes?|cake pop molds?|cakepop molds?|silicone molds?|poppers?)$/.test(name);
+}
+function psReusableTool(item){return !!item&&(isShapeStockItem(item)||psReusableToolCategory(item.type))}
+const psReusableAuditBefore=psAuditIssues;
+psAuditIssues=function(){
+ return psReusableAuditBefore().filter(issue=>{
+  if(issue.kind==='Stock')return !psReusableTool((d.items||[]).find(i=>i.id===issue.id));
+  if(issue.kind==='Recipe'){
+   const recipe=(d.recipes||[]).find(r=>r.id===issue.id);
+   if(!recipe)return true;
+   const recipePartsAll=recipeParts(recipe);
+   return !recipePartsAll.some(p=>psReusableTool((d.items||[]).find(i=>i.id===p.id))&&issue.detail.startsWith(p.name+':'));
+  }
+  return true;
+ });
+};
+const psReusableEditBefore=editItem;
+editItem=function(x='',cat=''){
+ psReusableEditBefore(x,cat);
+ const form=$('dialogBody')?.querySelector('form');if(!form)return;
+ const section=form.querySelector('.ps-stock-advanced'),item=(d.items||[]).find(i=>i.id===x);
+ const cost=form.elements.packageCost?.closest('.formgrid');
+ const header=[...form.querySelectorAll('h3')].find(v=>/purchase cost/i.test(v.textContent));
+ const instruction=header?.nextElementSibling;
+ const update=()=>{
+  const reusable=psReusableToolCategory(form.elements.type?.value)||(item&&psReusableTool(item)&&!form.elements.type?.value);
+  if(cost)cost.style.display=reusable?'none':'';
+  if(section)section.style.display=reusable?'none':'';
+  if(header)header.style.display=reusable?'none':'';
+  if(instruction?.tagName==='P')instruction.style.display=reusable?'none':'';
+  const preview=form.querySelector('p[aria-live="polite"]');
+  if(preview)preview.style.display=reusable?'none':'';
+ };
+ form.elements.type?.addEventListener('change',update);update();
+};
+const psReusableSaveBefore=saveItem;
+saveItem=function(e,x){
+ const f=e.target;
+ if(psReusableToolCategory(f.elements.type?.value)){
+  // Retain existing historical purchase data; only bypass consumable-pricing validation.
+  const measure=f.elements.packageUnit,unit=f.elements.unit;
+  if(unit&&!unit.value.trim())unit.value='each';
+  if(measure&&!measure.value.trim())measure.value=unit?.value||'each';
+  const stockUnitValidation=saveItem;
+  // Reusable entries use the existing safe stock save path without unit price checks.
+  e.preventDefault();
+  const current=(d.items||[]).find(i=>i.id===x);
+  const entry={id:x||id(),name:f.elements.name.value.trim(),type:f.elements.type.value,
+   qty:Number(f.elements.qty.value),unit:unit?.value||'each',
+   min:Number(f.elements.min?.value)||0,restock:Number(f.elements.restock?.value)||0};
+  if(!entry.name||!Number.isFinite(entry.qty)||entry.qty<0){alert('Enter a valid name and quantity.');return}
+  if(current)Object.assign(current,entry);else d.items.push(entry);
+  done();return;
+ }
+ return psReusableSaveBefore(e,x);
+};
+
 try{render();psWelcomeFirstLaunch()}catch(psError){window.psShowStartupError?.(psError?.stack||psError?.message||psError);psEmergencyRecovery(psError)}if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
