@@ -4660,4 +4660,146 @@ saveItem=function(e,x){
  return psSimpleStockSaveBefore(e,x);
 };
 
+
+/* Multi-flavor estimates: separate recipe batches, combined customer quote. */
+function psQuoteLines(q){
+ return Array.isArray(q.lines)&&q.lines.length?q.lines:[{flavor:q.flavor,shape:q.shape,count:q.count}];
+}
+function psQuoteAddLine(line={}){
+ const host=$('psQuoteLines');if(!host)return;
+ const wrapper=document.createElement('div');wrapper.className='pair ps-quote-line';
+ wrapper.style.marginBottom='10px';
+ const recipes=alpha(d.recipes),shapes=alpha(d.shapes);
+ wrapper.innerHTML='<label>Flavor</label><select class="ps-quote-flavor">'+recipes.map(v=>'<option value="'+esc(v.id)+'">'+esc(v.name)+'</option>').join('')+'</select>'+
+ '<label>Shape</label><select class="ps-quote-shape">'+shapes.map(v=>'<option value="'+esc(v.id)+'">'+esc(v.name)+'</option>').join('')+'</select>'+
+ '<label>Number of pops</label><input class="ps-quote-count" type="number" min="1" step="1" value="'+(Number(line.count)>0?Number(line.count):24)+'">'+
+ '<button type="button" class="alt ps-quote-remove">Remove flavor</button>';
+ wrapper.querySelector('.ps-quote-flavor').value=line.flavor||recipes[0]?.id||'';
+ wrapper.querySelector('.ps-quote-shape').value=line.shape||shapes[0]?.id||'';
+ wrapper.querySelector('.ps-quote-remove').addEventListener('click',()=>{
+  if(host.children.length<=1){alert('Keep at least one flavor.');return}
+  wrapper.remove();quotePreview();
+ });
+ wrapper.querySelectorAll('input,select').forEach(el=>el.addEventListener('input',quotePreview));
+ host.append(wrapper);
+}
+const psMultiQuoteEditBefore=newCustomerQuote;
+newCustomerQuote=function(x=''){
+ psMultiQuoteEditBefore(x);
+ const form=$('dialogBody')?.querySelector('form'),q=(d.customerQuotes||[]).find(v=>v.id===x)||{};
+ if(!form)return;
+ const legacyFlavor=$('quoteFlavor'),legacyShape=$('quoteShape'),legacyCount=$('quoteCount');
+ if(!legacyFlavor||!legacyShape||!legacyCount)return;
+ const section=document.createElement('div');section.className='pair';
+ const heading=document.createElement('h3');heading.textContent='Flavors and quantities';
+ const rows=document.createElement('div');rows.id='psQuoteLines';
+ const add=document.createElement('button');add.type='button';add.className='alt';add.textContent='+ Add flavor';
+ add.addEventListener('click',()=>{psQuoteAddLine();quotePreview()});
+ section.append(heading,rows,add);
+ legacyFlavor.previousElementSibling?.remove();legacyFlavor.style.display='none';
+ legacyShape.previousElementSibling?.remove();legacyShape.style.display='none';
+ legacyCount.closest('div')?.style.setProperty('display','none');
+ legacyFlavor.before(section);
+ psQuoteLines(q).forEach(psQuoteAddLine);
+ quotePreview();
+};
+const psMultiQuoteNumbersBefore=quoteNumbers;
+quoteNumbers=function(){
+ if(!$('psQuoteLines'))return psMultiQuoteNumbersBefore();
+ const fields=[...document.querySelectorAll('#psQuoteLines .ps-quote-line')];
+ const lines=fields.map(el=>({flavor:el.querySelector('.ps-quote-flavor').value,shape:el.querySelector('.ps-quote-shape').value,count:Number(el.querySelector('.ps-quote-count').value)}));
+ const price=Number($('quotePrice')?.value),hours=Number($('quoteHours')?.value),rate=Number($('quoteRate')?.value),other=Number($('quoteOther')?.value),margin=Number($('quoteMargin')?.value);
+ if(!lines.length||[price,hours,rate,other,margin].some(v=>!Number.isFinite(v)||v<0)||margin>95)return null;
+ let cost=0,batches=0,count=0,missing=[];
+ for(const line of lines){
+  const recipe=d.recipes.find(v=>v.id===line.flavor),shape=d.shapes.find(v=>v.id===line.shape);
+  if(!recipe||!shape||!(Number(shape.yield)>0)||!Number.isInteger(line.count)||line.count<=0)return null;
+  const batchesForLine=Math.ceil(line.count/Number(shape.yield)),ingredients=phaseCost(recipe);
+  const packaging=phasePack(shape.id,line.count);
+  cost+=ingredients.cost*batchesForLine+packaging.cost;
+  batches+=batchesForLine;count+=line.count;
+  missing.push(...ingredients.missing.map(v=>recipe.name+': '+v),...packaging.missing.map(v=>recipe.name+': '+v));
+ }
+ cost+=(hours*rate+other)*batches;
+ return {lines,recipe:d.recipes.find(v=>v.id===lines[0].flavor),shape:d.shapes.find(v=>v.id===lines[0].shape),count,price,hours,rate,other,margin,batches,total:cost,suggested:cost/count/(1-margin/100),missing:[...new Set(missing)]};
+};
+const psMultiQuoteSaveBefore=saveCustomerEstimate;
+saveCustomerEstimate=function(e,x){
+ if(!$('psQuoteLines'))return psMultiQuoteSaveBefore(e,x);
+ e.preventDefault();
+ const v=quoteNumbers();if(!v){alert('Add valid flavors, shapes and quantities before saving.');return}
+ if(v.missing.length&&!confirm('Some costs are missing. Save the estimate as incomplete?'))return;
+ const f=e.target;
+ const record={id:x||id(),customer:f.elements.customer.value.trim(),lines:v.lines,
+  flavor:v.lines[0].flavor,shape:v.lines[0].shape,count:v.count,price:v.price,
+  hours:v.hours,rate:v.rate,other:v.other,margin:v.margin,suggested:v.suggested,
+  totalCost:v.total,missing:v.missing,notes:f.elements.notes.value,updatedAt:new Date().toISOString()};
+ const old=d.customerQuotes.find(q=>q.id===x);
+ if(old)Object.assign(old,record);else d.customerQuotes.push(record);
+ d.quoteSettings={hours:v.hours,rate:v.rate,other:v.other,margin:v.margin};
+ done();
+};
+const psMultiQuotePreviewBefore=quotePreview;
+quotePreview=function(){
+ if(!$('psQuoteLines'))return psMultiQuotePreviewBefore();
+ const v=quoteNumbers(),root=$('quoteResult');
+ if(!root)return;
+ if(!v){root.textContent='Choose a valid flavor, shape and quantity for each line.';return}
+ root.innerHTML='<strong>'+v.count+' total pops across '+v.lines.length+' flavor line(s)</strong>'+
+ '<div class="formgrid"><div><strong>Your selling price</strong><h2>'+money(v.count*v.price)+'</h2></div>'+
+ '<div><strong>Suggested total</strong><h2>'+(v.missing.length?'Incomplete':money(v.count*v.suggested))+'</h2></div></div>'+
+ '<p>Known costs: '+money(v.total)+' · '+v.batches+' recipe batches</p>'+
+ (v.missing.length?'<p class="bad">Missing costs: '+v.missing.map(esc).join(', ')+'</p>':'');
+};
+psEstimateLines=function(q){
+ const lines=psQuoteLines(q),count=lines.reduce((n,l)=>n+(Number(l.count)||0),0);
+ return [psCustomerBrand(),'CUSTOMER ESTIMATE','Customer: '+(q.customer||'Customer'),
+ ...lines.map(l=>flavorName(l.flavor)+' — '+shapeName(l.shape)+' — '+l.count+' pops'),
+ 'Total quantity: '+count+' pops','Price per pop: '+money(Number(q.price)||0),
+ 'Estimated total: '+money(count*(Number(q.price)||0)),q.notes?'Notes: '+q.notes:'',
+ 'Estimate only; order not confirmed.'].filter(Boolean).join('\n');
+};
+psQuotePrint=function(idValue){
+ const q=d.customerQuotes.find(v=>v.id===idValue);if(!q)return;
+ const lines=psQuoteLines(q),count=lines.reduce((n,l)=>n+(Number(l.count)||0),0);
+ const fields=[['Customer',q.customer||'Customer'],
+ ...lines.map((l,i)=>['Item '+(i+1),flavorName(l.flavor)+' / '+shapeName(l.shape)+' / '+l.count+' pops']),
+ ['Total quantity',count+' pops'],['Price per pop',money(Number(q.price)||0)],
+ ['Estimated total',money(count*(Number(q.price)||0))]];
+ psCustomerPrint('Customer Estimate',fields,q.notes||'','Estimate only. Order not confirmed.');
+};
+const psMultiConvertBefore=convertQuoteToOrder;
+convertQuoteToOrder=function(quoteId){
+ const q=d.customerQuotes.find(v=>v.id===quoteId);if(!q||!Array.isArray(q.lines)||q.lines.length<=1)return psMultiConvertBefore(quoteId);
+ if(q.convertedOrderId||quoteOrderFor(quoteId)){alert('This estimate already has an order.');return}
+ const valid=q.lines.every(l=>d.recipes.some(r=>r.id===l.flavor)&&d.shapes.some(sh=>sh.id===l.shape&&Number(sh.yield)>0)&&Number.isInteger(Number(l.count))&&Number(l.count)>0);
+ if(!valid){alert('One of the saved flavor lines is invalid. Edit the estimate first.');return}
+ modal('Convert estimate to order','<form onsubmit="saveQuoteOrder(event,\''+quoteId+'\')">'+
+ '<p class="notice">All saved flavors will transfer into one planned order. No stock is deducted yet.</p>'+
+ '<label>Customer / order name</label><input name="name" required value="'+esc(q.customer||'')+'">'+
+ '<label>Due date</label><input type="date" name="date" required>'+
+ q.lines.map(l=>'<p>'+esc(flavorName(l.flavor))+' / '+esc(shapeName(l.shape))+' / '+Number(l.count)+' pops</p>').join('')+
+ '<label>Order notes</label><textarea name="notes">'+esc(q.notes||'')+'</textarea>'+
+ '<button type="submit">Create planned order</button></form>');
+};
+const psMultiSaveOrderBefore=saveQuoteOrder;
+saveQuoteOrder=function(e,quoteId){
+ const q=d.customerQuotes.find(v=>v.id===quoteId);
+ if(!q||!Array.isArray(q.lines)||q.lines.length<=1)return psMultiSaveOrderBefore(e,quoteId);
+ e.preventDefault();
+ if(q.convertedOrderId||quoteOrderFor(quoteId))return alert('Already converted.');
+ const f=e.target,name=f.elements.name.value.trim(),date=f.elements.date.value;
+ if(!name||!date||!q.lines.every(l=>d.recipes.some(r=>r.id===l.flavor)&&d.shapes.some(sh=>sh.id===l.shape)&&Number.isInteger(Number(l.count))&&Number(l.count)>0))return alert('Check the estimate lines and order details.');
+ const total=q.lines.reduce((n,l)=>n+Number(l.count),0)*Number(q.price||0);
+ const order={id:id(),name,date,status:'Planned',lines:q.lines.map(l=>({...l})),allocations:[],deducted:false,
+  sourceQuoteId:quoteId,quotedPricePerPop:Number(q.price)||0,quotedTotal:Math.round(total*100)/100,
+  orderNotes:f.elements.notes.value,convertedAt:new Date().toISOString()};
+ const saved=p1Commit(()=>{
+  if(q.convertedOrderId||quoteOrderFor(quoteId))throw Error('Order already exists.');
+  d.orders.push(order);q.convertedOrderId=order.id;q.convertedAt=order.convertedAt;
+  d.log.push({type:'Quote converted to order',quoteId,orderId:order.id,date:new Date().toISOString()});
+ });
+ if(saved){$('dialog').close();go('orders')}
+};
+
 try{render();psWelcomeFirstLaunch()}catch(psError){window.psShowStartupError?.(psError?.stack||psError?.message||psError);psEmergencyRecovery(psError)}if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
