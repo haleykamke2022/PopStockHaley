@@ -4802,4 +4802,78 @@ saveQuoteOrder=function(e,quoteId){
  if(saved){$('dialog').close();go('orders')}
 };
 
+
+/* Read-only Pricing Audit: stock prices, recipe ingredient matching, unit compatibility. */
+function psAuditIssues(){
+ const issues=[];
+ const add=(kind,id,name,detail,section)=>issues.push({kind,id,name,detail,section});
+ for(const item of d.items||[]){
+  if(isShapeStockItem(item))continue;
+  if(!(Number(item.packageCost)>0))add('Stock',item.id,item.name,'Purchase price is missing.','stock');
+  else if(!(Number(item.packageSize)>0)||!String(item.packageUnit||item.unit||'').trim())
+   add('Stock',item.id,item.name,'Purchase quantity or measurement is missing.','stock');
+ }
+ for(const recipe of d.recipes||[]){
+  for(const part of recipeParts(recipe)){
+   if(d.items.some(i=>i.id===part.id&&popPackKind(i)))continue;
+   const matches=(d.items||[]).filter(i=>!isShapeStockItem(i)&&
+    (part.id?i.id===part.id:normal(i.name)===normal(part.name)));
+   const hasRecipePrice=Number(part.recipeCostPrice)>0&&Number(part.recipeCostSize)>0&&
+     convertedAmount(1,part.unit,part.recipeCostUnit)!==null;
+   if(!matches.length&&!hasRecipePrice){
+    add('Recipe',recipe.id,recipe.name,part.name+': not linked to My Stock and no compatible recipe-only price.','flavors');
+   }else if(matches.length&&!hasRecipePrice){
+    const priced=matches.some(i=>!costPart({...part,id:i.id}).unknown);
+    if(!priced)add('Recipe',recipe.id,recipe.name,part.name+': missing price or incompatible unit ('+part.unit+').','flavors');
+   }
+  }
+ }
+ for(const shape of d.shapes||[]){
+  for(const key of ['popStick','popBag','popLabel']){
+   if(!shape[key]||shape[key]==='none')continue;
+   const item=d.items.find(i=>i.id===shape[key]);
+   if(!item)add('Shape',shape.id,shape.name,'Linked packaging supply is missing.','stock');
+   else if(!(Number(item.packageCost)>0&&Number(item.packageSize)>0))
+    add('Shape',shape.id,shape.name,item.name+': packaging purchase cost is incomplete.','stock');
+  }
+ }
+ return issues.sort((a,b)=>a.name.localeCompare(b.name)||a.detail.localeCompare(b.detail));
+}
+function psAuditFix(issue){
+ if(issue.kind==='Stock')return editItem(issue.id);
+ if(issue.kind==='Recipe')return editFlavor(issue.id);
+ if(issue.kind==='Shape')return editShape(issue.id);
+}
+function psRenderPricingAudit(){
+ const root=$('business');if(!root)return;
+ root.querySelector('#psPricingAudit')?.remove();
+ const issues=psAuditIssues();
+ const box=document.createElement('div');box.id='psPricingAudit';box.className='card';
+ const title=document.createElement('h3');title.textContent='Pricing Audit';
+ const summary=document.createElement('p');summary.className='muted small';
+ summary.textContent=issues.length?issues.length+' pricing issue(s) to review. Select Fix Pricing to open the saved entry.':'No missing pricing detected by this audit.';
+ const intro=document.createElement('p');intro.className='muted small';
+ intro.textContent='Checks existing stock, recipe ingredients and legacy shape packaging. Nothing is modified until you edit and save.';
+ box.append(title,summary,intro);
+ const search=document.createElement('input');search.type='search';search.placeholder='Search pricing issues';search.setAttribute('aria-label','Search pricing issues');
+ box.append(search);
+ const list=document.createElement('div');box.append(list);
+ const draw=()=>{
+  list.replaceChildren();
+  const q=search.value.trim().toLowerCase(),filtered=issues.filter(i=>(i.name+' '+i.detail+' '+i.kind).toLowerCase().includes(q));
+  filtered.forEach(issue=>{
+   const row=document.createElement('div');row.className='item row';
+   const desc=document.createElement('div');const name=document.createElement('strong');name.textContent=issue.name;
+   const detail=document.createElement('div');detail.className='small muted';detail.textContent=issue.kind+' · '+issue.detail;desc.append(name,detail);
+   const fix=document.createElement('button');fix.type='button';fix.className='alt';fix.textContent='Fix Pricing';
+   fix.addEventListener('click',()=>psAuditFix(issue));row.append(desc,fix);list.append(row);
+  });
+  if(!filtered.length){const p=document.createElement('p');p.className='muted small';p.textContent='No matching issues.';list.append(p)}
+ };
+ search.addEventListener('input',draw);draw();
+ root.prepend(box);
+}
+const psAuditBusinessBefore=renderBusiness;
+renderBusiness=function(){psAuditBusinessBefore();psRenderPricingAudit()};
+
 try{render();psWelcomeFirstLaunch()}catch(psError){window.psShowStartupError?.(psError?.stack||psError?.message||psError);psEmergencyRecovery(psError)}if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
