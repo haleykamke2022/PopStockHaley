@@ -4988,6 +4988,8 @@ quotePreview=function(){
  '<div class="item row"><span>One-time order expenses</span><strong>'+money(b.oneTime)+'</strong></div>'+
  '<div class="item row"><strong>Total estimated cost</strong><strong>'+money(v.total)+'</strong></div>'+
  '<div class="item row"><strong>Estimated profit at your price</strong><strong class="'+(profit<0?'bad':'')+'">'+(profit<0?'-':'')+money(Math.abs(profit))+'</strong></div>'+
+ '<div class="item row"><strong>Labor + Profit (Total Earnings)</strong><strong class="'+(profit+b.labor<0?'bad':'')+'">'+(profit+b.labor<0?'-':'')+money(Math.abs(profit+b.labor))+'</strong></div>'+
+ '<p class="muted small">Total earnings combines estimated labor pay and profit after materials and other expenses. This is not an additional customer charge.</p>'+
  '<p class="muted small">Ingredients use the selected popper yields to determine full recipe quantities. Labor and one-time expenses apply once per customer order. Recommended price uses your '+v.margin+'% target margin.</p>'+
  (v.missing.length?'<p class="bad">Incomplete pricing: '+v.missing.map(esc).join(', ')+'</p>':'');
 };
