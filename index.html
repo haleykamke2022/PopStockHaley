@@ -4981,7 +4981,7 @@ quotePreview=function(){
  root.innerHTML='<h3>Customer order pricing</h3>'+
  '<p><strong>'+v.count+' pops ('+(Number.isInteger(dozens)?dozens:dozens.toFixed(2))+' dozen)</strong></p>'+
  '<div class="formgrid"><div><span class="muted small">Your customer price</span><h2>'+money(customer)+'</h2></div>'+
- '<div><span class="muted small">PopStock recommended price</span><h2>'+(v.missing.length?'Incomplete':money(v.suggested*v.count))+'</h2></div></div>'+
+ '<div><span class="muted small">PopStock recommended price</span><h2>'+(v.missing.length?'Incomplete':money(v.suggested*v.count))+'</h2><p class="muted small">PopStock recommends charging this amount for the entire order based on your estimated costs and target profit margin. You choose the final customer price.</p></div></div>'+
  '<h4>Estimated order expenses</h4>'+
  '<div class="item row"><span>Recipe ingredients and packaging</span><strong>'+money(b.ingredientsPackaging)+'</strong></div>'+
  '<div class="item row"><span>Labor ('+v.hours+' hours at '+money(v.rate)+'/hr)</span><strong>'+money(b.labor)+'</strong></div>'+
