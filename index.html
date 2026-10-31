@@ -4937,4 +4937,59 @@ saveItem=function(e,x){
  return psReusableSaveBefore(e,x);
 };
 
+
+/* Quote costs are customer-order-based. Recipe batch yields remain internal to ingredient costs. */
+const psOrderCostEstimateEditBefore=newCustomerQuote;
+newCustomerQuote=function(x=''){
+ psOrderCostEstimateEditBefore(x);
+ const form=$('dialogBody')?.querySelector('form');
+ if(!form)return;
+ const h=form.querySelector('#quoteHours'),o=form.querySelector('#quoteOther');
+ if(h){
+  const label=h.closest('div')?.querySelector('label');if(label)label.textContent='Total labor hours for this order';
+ }
+ if(o){
+  const label=o.closest('div')?.querySelector('label');if(label)label.textContent='One-time order expenses ($)';
+  const hint=document.createElement('p');hint.className='muted small';hint.textContent='Edible images, custom decorations, special supplies, etc. Enter the cost once for the entire order.';
+  o.after(hint);
+ }
+ const laborLabel=form.querySelector('#quoteRate')?.closest('div')?.querySelector('label');
+ if(laborLabel)laborLabel.textContent='Hourly labor rate ($)';
+ quotePreview();
+};
+const psOrderCostQuoteBefore=quoteNumbers;
+quoteNumbers=function(){
+ const v=psOrderCostQuoteBefore();
+ if(!v)return v;
+ // Prior calculation repeats labor and other costs for each recipe batch.
+ // Keep full-batch ingredient costing, but charge labor and one-time order expenses only once.
+ const oldExtras=(v.hours*v.rate+v.other)*v.batches;
+ const ingredientPackaging=Math.max(0,v.total-oldExtras);
+ const labor=v.hours*v.rate,oneTime=v.other;
+ v.total=ingredientPackaging+labor+oneTime;
+ v.suggested=v.total/v.count/(1-v.margin/100);
+ v.costBreakdown={ingredientsPackaging:ingredientPackaging,labor:labor,oneTime:oneTime};
+ return v;
+};
+const psOrderCostPreviewBefore=quotePreview;
+quotePreview=function(){
+ const root=$('quoteResult');if(!root)return;
+ const v=quoteNumbers();
+ if(!v){root.textContent='Enter valid flavors, quantities and pricing values.';return}
+ const b=v.costBreakdown,customer=v.price*v.count,profit=customer-v.total;
+ const dozens=v.count/12;
+ root.innerHTML='<h3>Customer order pricing</h3>'+
+ '<p><strong>'+v.count+' pops ('+(Number.isInteger(dozens)?dozens:dozens.toFixed(2))+' dozen)</strong></p>'+
+ '<div class="formgrid"><div><span class="muted small">Your customer price</span><h2>'+money(customer)+'</h2></div>'+
+ '<div><span class="muted small">PopStock recommended price</span><h2>'+(v.missing.length?'Incomplete':money(v.suggested*v.count))+'</h2></div></div>'+
+ '<h4>Estimated order expenses</h4>'+
+ '<div class="item row"><span>Recipe ingredients and packaging</span><strong>'+money(b.ingredientsPackaging)+'</strong></div>'+
+ '<div class="item row"><span>Labor ('+v.hours+' hours at '+money(v.rate)+'/hr)</span><strong>'+money(b.labor)+'</strong></div>'+
+ '<div class="item row"><span>One-time order expenses</span><strong>'+money(b.oneTime)+'</strong></div>'+
+ '<div class="item row"><strong>Total estimated cost</strong><strong>'+money(v.total)+'</strong></div>'+
+ '<div class="item row"><strong>Estimated profit at your price</strong><strong class="'+(profit<0?'bad':'')+'">'+(profit<0?'-':'')+money(Math.abs(profit))+'</strong></div>'+
+ '<p class="muted small">Ingredients use the selected popper yields to determine full recipe quantities. Labor and one-time expenses apply once per customer order. Recommended price uses your '+v.margin+'% target margin.</p>'+
+ (v.missing.length?'<p class="bad">Incomplete pricing: '+v.missing.map(esc).join(', ')+'</p>':'');
+};
+
 try{render();psWelcomeFirstLaunch()}catch(psError){window.psShowStartupError?.(psError?.stack||psError?.message||psError);psEmergencyRecovery(psError)}if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
