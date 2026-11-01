@@ -1346,11 +1346,11 @@ function receiveSave(e){
  const old=d.items.find(i=>i.id===row.id)||d.items.find(i=>!isShapeStockItem(i)&&normal(i.name)===normal(name));
  let increase=packages;
  if(old){
-  if(normal(old.unit||'pack')!==normal(packType)){
+  if(psPurchaseUnit(old.unit||'pack')!==psPurchaseUnit(packType)){
    increase=convertedAmount(packages*size,unit,old.unit);
    if(increase===null){alert('Existing stock uses '+old.unit+'. This purchase cannot be converted safely. Update its stock unit before adding the purchase.');return}
-  }else if(Number(old.qty)>0&&Number(old.packageSize)>0&&old.packageUnit&&(Number(old.packageSize)!==size||normal(old.packageUnit)!==normal(unit))){
-   alert('Existing stock has a different package size. Update or use that stock separately to avoid mixing package quantities.');return;
+  }else if(Number(old.qty)>0&&Number(old.packageSize)>0&&old.packageUnit&&(Number(old.packageSize)!==size||psPurchaseUnit(old.packageUnit)!==psPurchaseUnit(unit))){
+   if(!confirm('This item already has stock with a different package measurement. Are you updating the saved package information for all remaining '+old.unit+'? Continue only if the new size accurately describes those existing packages.'))return;
   }
  }
  const list=shopKey();
@@ -5023,5 +5023,12 @@ editItem=function(x='',cat=''){
   field.after(hint);
  }
 };
+
+/* Normalize common singular/plural purchase units while preserving stored wording. */
+function psPurchaseUnit(value){
+ const u=normal(value);
+ const names={boxes:'box',bags:'bag',packs:'pack',packages:'pack',bottles:'bottle',containers:'container',jars:'jar',tubs:'tub',cups:'cup',ounces:'oz',pounds:'lb',items:'each'};
+ return names[u]||u;
+}
 
 try{render();psWelcomeFirstLaunch()}catch(psError){window.psShowStartupError?.(psError?.stack||psError?.message||psError);psEmergencyRecovery(psError)}if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
