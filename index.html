@@ -4994,4 +4994,34 @@ quotePreview=function(){
  (v.missing.length?'<p class="bad">Incomplete pricing: '+v.missing.map(esc).join(', ')+'</p>':'');
 };
 
+
+/* Mobile inventory entry: purchase units must always accept free text. */
+const psMobileUnitEditBefore=editItem;
+editItem=function(x='',cat=''){
+ psMobileUnitEditBefore(x,cat);
+ const form=$('dialogBody')?.querySelector('form');
+ if(!form)return;
+ const original=form.elements.packageUnit;
+ if(!original)return;
+ let field=original;
+ if(original.tagName==='SELECT'){
+  field=document.createElement('input');
+  field.type='text';field.name='packageUnit';field.value=original.value;
+  original.replaceWith(field);
+ }
+ field.type='text';
+ field.removeAttribute('list');
+ field.removeAttribute('readonly');
+ field.removeAttribute('inputmode');
+ field.setAttribute('autocomplete','off');
+ field.setAttribute('autocapitalize','off');
+ field.placeholder='Type a unit (each, oz, lb, box, etc.)';
+ const parent=field.parentElement;
+ if(parent&&!parent.querySelector('.ps-unit-free-entry-help')){
+  const hint=document.createElement('p');hint.className='muted small ps-unit-free-entry-help';
+  hint.textContent='Type any unit. Common examples: each, oz, lb, g, cup, box.';
+  field.after(hint);
+ }
+};
+
 try{render();psWelcomeFirstLaunch()}catch(psError){window.psShowStartupError?.(psError?.stack||psError?.message||psError);psEmergencyRecovery(psError)}if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
