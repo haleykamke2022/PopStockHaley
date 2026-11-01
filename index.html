@@ -5102,4 +5102,49 @@ editItem=function(x='',cat=''){
  unit.parentElement?.append(help);
 };
 
+
+/* Opened-package inventory: retain fractional boxes while presenting usable contents. */
+function psOpenPackageBalance(item){
+ if(!item)return null;
+ const unit=psPurchaseUnit(item.unit||'');
+ const kinds=['box','bag','pack','bottle','container','jar','tub'];
+ const size=Number(item.packageSize),qty=Number(item.qty);
+ if(!kinds.includes(unit)||!(size>0)||!Number.isFinite(qty))return null;
+ const measure=String(item.packageUnit||'').trim();
+ if(!measure||psPurchaseUnit(measure)===unit)return null;
+ return {amount:Math.max(0,qty*size),unit:measure,packages:qty};
+}
+const psOpenPackageStockRenderBefore=renderStock;
+renderStock=function(){
+ psOpenPackageStockRenderBefore();
+ const root=$('stock');
+ if(!root||!selected)return;
+ for(const item of d.items||[]){
+  if(!psOpenPackageBalance(item)||catOf(item)?.id!==selected)continue;
+  const display=psOpenPackageBalance(item);
+  const button=[...root.querySelectorAll('button')].find(b=>b.getAttribute('onclick')==="editItem('"+item.id+"')");
+  const row=button?.closest('.item');if(!row||row.querySelector('.ps-open-package-balance'))continue;
+  const note=document.createElement('div');note.className='small muted ps-open-package-balance';
+  note.textContent='Usable amount remaining: '+fmt(display.amount)+' '+display.unit+
+   ' ('+fmt(display.packages)+' '+item.unit+' equivalent; opened packages are included)';
+  row.append(note);
+ }
+};
+const psOpenPackageReceiptBefore=receiveOpen;
+receiveOpen=function(key){
+ psOpenPackageReceiptBefore(key);
+ const form=$('dialogBody')?.querySelector('form');
+ if(!form?.elements.packages||!form.elements.sizeUnit)return;
+ const row=receiptRows().find(r=>r.key===key);
+ const stock=(d.items||[]).find(i=>i.id===row?.id)||(d.items||[]).find(i=>normal(i.name)===normal(row?.name));
+ const pkg=form.elements.packageType;
+ if(stock&&pkg){
+  const matched=[...pkg.options].find(o=>psPurchaseUnit(o.value)===psPurchaseUnit(stock.unit));
+  if(matched)pkg.value=matched.value;
+ }
+ const hint=document.createElement('p');hint.className='muted small';
+ hint.textContent='Example: 1 box containing 2.5 cups adds one box. After a recipe uses 0.5 cup, PopStock keeps 2 cups available in the opened box.';
+ form.elements.sizeUnit.closest('div')?.append(hint);
+};
+
 try{render();psWelcomeFirstLaunch()}catch(psError){window.psShowStartupError?.(psError?.stack||psError?.message||psError);psEmergencyRecovery(psError)}if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
