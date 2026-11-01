@@ -5031,4 +5031,33 @@ function psPurchaseUnit(value){
  return names[u]||u;
 }
 
+
+/* Recognize singular/plural stock units and safely reconnect uniquely named recipe ingredients. */
+const psUnitMatchConvertBefore=bulkConvertToStock;
+bulkConvertToStock=function(amount,recipeUnit,item){
+ const result=psUnitMatchConvertBefore(amount,recipeUnit,item);
+ if(result!==null)return result;
+ const canon=u=>{
+  const t=normal(u||'');
+  return ({boxes:'box',bags:'bag',packs:'pack',packages:'pack',bottles:'bottle',containers:'container',jars:'jar',tubs:'tub',pieces:'each',items:'each',sticks:'each',cups:'cup'})[t]||t;
+ };
+ const stockUnit=canon(item.unit||'pack'),from=canon(recipeUnit);
+ if(stockUnit===from)return amount;
+ const countUnits=['box','bag','pack','bottle','container','jar','tub'];
+ if(countUnits.includes(stockUnit)&&Number(item.packageSize)>0){
+  const measured=convertedAmount(amount,from,canon(item.packageUnit||''));
+  if(measured!==null)return measured/Number(item.packageSize);
+ }
+ return null;
+};
+const psIngredientStockMatchBefore=matchSupply;
+matchSupply=function(part){
+ const found=psIngredientStockMatchBefore(part);
+ if(found)return found;
+ const matches=(d.items||[]).filter(i=>!isShapeStockItem(i)&&normal(i.name)===normal(part.name));
+ // Do not silently link to an ambiguous product with the same name.
+ if(matches.length!==1)return undefined;
+ return bulkConvertToStock(1,part.unit,matches[0])!==null?matches[0]:undefined;
+};
+
 try{render();psWelcomeFirstLaunch()}catch(psError){window.psShowStartupError?.(psError?.stack||psError?.message||psError);psEmergencyRecovery(psError)}if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
