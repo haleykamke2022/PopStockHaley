@@ -5181,4 +5181,34 @@ shopNeeds=function(){
  return [...byKey.values()].sort((a,b)=>String(a.name).localeCompare(String(b.name)));
 };
 
+
+/* Live stock resolution shared by recipes, plans and shopping lists. */
+function psStockNameKey(v){
+ return normal(v).replace(/&/g,' and ').replace(/[^a-z0-9]+/g,' ').replace(/\s+/g,' ').trim();
+}
+const psLiveStockMatchBefore=matchSupply;
+matchSupply=function(part){
+ const matched=psLiveStockMatchBefore(part);
+ if(matched)return matched;
+ const wanted=psStockNameKey(part.name);
+ if(!wanted)return undefined;
+ const candidates=(d.items||[]).filter(i=>!isShapeStockItem(i)&&psStockNameKey(i.name)===wanted);
+ const compatible=candidates.filter(i=>bulkConvertToStock(1,part.unit,i)!==null);
+ return compatible.length===1?compatible[0]:undefined;
+};
+const psLiveShopNeedsBefore=shopNeeds;
+shopNeeds=function(){
+ const computed=psLiveShopNeedsBefore();
+ const state=d.shoppingChecklists?.[shopKey()];
+ if(!state?.undoRows)return computed;
+ // An Undo row is only retained if its underlying stock requirement is still unmet.
+ const plan=shopCurrentPlan();
+ const active=plan?checkRows(freshLines(plan)).filter(r=>r.missing||r.buy>0):null;
+ const activeKeys=active?new Set(active.map(r=>r.supply?.id?'s:'+r.supply.id:'r:'+normal(r.name)+'|'+normal(r.unit))):null;
+ const genuine=new Set((plan?activeKeys: new Set(homeLowStock().map(i=>'s:'+i.id))));
+ const filtered=computed.filter(r=>!state.undoRows[r.key]||genuine.has(r.key));
+ for(const key of Object.keys(state.undoRows))if(!genuine.has(key))delete state.undoRows[key];
+ return filtered;
+};
+
 try{render();psWelcomeFirstLaunch()}catch(psError){window.psShowStartupError?.(psError?.stack||psError?.message||psError);psEmergencyRecovery(psError)}if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
