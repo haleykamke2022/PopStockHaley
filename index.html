@@ -5328,4 +5328,105 @@ renderProduction=function(){
  });
 };
 
+
+/* Personal update: include active events on Home and allow safe notes editing after stock is pulled. */
+function psActiveJobs(){
+ return [...(d.orders||[]).map(p=>({kind:'orders',p})),...(d.events||[]).map(p=>({kind:'events',p}))]
+ .filter(v=>String(v.p.status||'').toLowerCase()==='in progress')
+ .sort((a,b)=>String(a.p.date||a.p.due||'9999-12-31').localeCompare(String(b.p.date||b.p.due||'9999-12-31')));
+}
+function psEditStartedNotes(kind,planId){
+ if(!['orders','events'].includes(kind))return;
+ const plan=(d[kind]||[]).find(p=>String(p.id)===String(planId));if(!plan)return;
+ const initial=String(plan.productionNotes??plan.notes??'');
+ modal('Notes: '+(plan.name||plan.customer||(kind==='events'?'Event':'Order')),
+  '<form id="psStartedNotesForm"><p class="muted small">Add or update instructions at any stage. This will not change stock, quantities, or production status.</p><label for="psStartedNotesField">General notes / production instructions</label><textarea id="psStartedNotesField" rows="6" placeholder="Packaging, pickup details, decorations, reminders..."></textarea><div class="actions"><button type="submit">Save notes</button></div></form>');
+ const form=$('psStartedNotesForm'),area=$('psStartedNotesField');
+ if(!form||!area)return;
+ area.value=initial;
+ form.addEventListener('submit',e=>{
+  e.preventDefault();
+  plan.productionNotes=area.value;
+  save();$('dialog')?.close();render();
+ });
+}
+const psStartedNotesRenderProductionBefore=renderProduction;
+renderProduction=function(){
+ psStartedNotesRenderProductionBefore();
+ const root=$('production');if(!root)return;
+ const jobs=[...(d.orders||[]).map(p=>({kind:'orders',p})),...(d.events||[]).map(p=>({kind:'events',p}))];
+ root.querySelectorAll('[data-prod-action="details"]').forEach(button=>{
+  const kind=button.dataset.kind,id=button.dataset.id;
+  const job=jobs.find(v=>v.kind===kind&&String(v.p.id)===String(id));
+  if(!job)return;
+  const card=button.closest('.card');if(!card)return;
+  const actions=button.closest('.actions')||card;
+  if(String(job.p.productionNotes||job.p.notes||'').trim()){
+   const note=document.createElement('p');note.className='small';note.style.whiteSpace='pre-wrap';
+   note.textContent='Notes: '+(job.p.productionNotes??job.p.notes);actions.before(note);
+  }
+  const edit=document.createElement('button');edit.type='button';edit.className='alt';
+  edit.textContent='Edit notes';edit.addEventListener('click',()=>psEditStartedNotes(kind,id));actions.append(edit);
+ });
+};
+const psStartedNotesRenderPlansBefore=renderPlans;
+renderPlans=function(kind){
+ psStartedNotesRenderPlansBefore(kind);
+ if(!['orders','events'].includes(kind))return;
+ const root=$(kind);if(!root)return;
+ for(const plan of d[kind]||[]){
+  const edit=[...root.querySelectorAll('button[onclick]')].find(b=>b.getAttribute('onclick')==="editPlan('"+kind+"','"+plan.id+"')");
+  const card=edit?.closest('.card');if(!card)continue;
+  const actions=card.querySelector('.actions')||card;
+  if(String(plan.productionNotes??plan.notes??'').trim()){
+   const note=document.createElement('div');note.className='small';note.style.whiteSpace='pre-wrap';
+   note.textContent='Notes: '+(plan.productionNotes??plan.notes);actions.before(note);
+  }
+  const button=document.createElement('button');button.type='button';button.className='alt';
+  button.textContent='Edit notes';button.addEventListener('click',()=>psEditStartedNotes(kind,plan.id));
+  actions.append(button);
+ }
+};
+const psActiveHomeRenderBefore=renderHome;
+renderHome=function(){
+ psActiveHomeRenderBefore();
+ const root=$('home');if(!root)return;
+ const active=psActiveJobs();
+ const cards=[...root.querySelectorAll('.home-stat')];
+ const productionStat=cards.find(el=>el.textContent.includes('In production'));
+ if(productionStat){
+  const value=productionStat.querySelector('.home-value');if(value)value.textContent=String(active.length);
+  productionStat.setAttribute('onclick',"go('production')");
+ }
+ const section=document.createElement('div');section.className='card';section.id='psHomeActiveProduction';
+ const heading=document.createElement('div');heading.className='row wrap';
+ const title=document.createElement('h3');title.textContent='Currently in production ('+active.length+')';
+ const view=document.createElement('button');view.type='button';view.className='alt';
+ view.textContent='Production tracker';view.addEventListener('click',()=>go('production'));
+ heading.append(title,view);section.append(heading);
+ if(!active.length){
+  const empty=document.createElement('p');empty.className='muted small';
+  empty.textContent='No orders or events are currently in production.';section.append(empty);
+ }
+ for(const {kind,p} of active){
+  const line=document.createElement('div');line.className='item';
+  const top=document.createElement('div');top.className='row wrap';
+  const detail=document.createElement('div');
+  const name=document.createElement('strong');name.textContent=p.name||p.customer||'Untitled';
+  const meta=document.createElement('div');meta.className='small muted';
+  meta.textContent=(kind==='events'?'Event':'Order')+' · '+(p.date||p.due||'No date');
+  detail.append(name,meta);top.append(detail);
+  const notes=document.createElement('button');notes.type='button';notes.className='alt';
+  notes.textContent='Edit notes';notes.addEventListener('click',()=>psEditStartedNotes(kind,p.id));
+  top.append(notes);line.append(top);
+  if(String(p.productionNotes??p.notes??'').trim()){
+   const note=document.createElement('p');note.className='small';note.style.whiteSpace='pre-wrap';
+   note.textContent=p.productionNotes??p.notes;line.append(note);
+  }
+  section.append(line);
+ }
+ const quick=[...root.querySelectorAll('.card')].find(el=>el.querySelector('.home-actions'));
+ if(quick)quick.after(section);else root.prepend(section);
+};
+
 try{render();psWelcomeFirstLaunch()}catch(psError){window.psShowStartupError?.(psError?.stack||psError?.message||psError);psEmergencyRecovery(psError)}if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
