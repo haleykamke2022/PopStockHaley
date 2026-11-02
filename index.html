@@ -5225,8 +5225,8 @@ function psMeasurementAudit(){
   const row={recipe:recipe.name,recipeId:recipe.id,ingredient:part.name,unit:part.unit,
    stock:best?.name||candidates[0]?.name||'',stockUnit:best?.unit||candidates[0]?.unit||'',
    packageUnit:best?.packageUnit||candidates[0]?.packageUnit||'',packageSize:best?.packageSize||candidates[0]?.packageSize||0};
-  if(!candidates.length)issues.push({...row,reason:'Not found in My Stock',kind:'missing'});
-  else if(!compatible.length)issues.push({...row,reason:'Measurement mismatch: recipe uses '+part.unit+', stock is '+row.stockUnit+(row.packageUnit?' (package: '+row.packageSize+' '+row.packageUnit+')':''),kind:'units'});
+  if(!candidates.length)continue; // Untracked or recipe-only ingredients are intentionally excluded.
+  if(!compatible.length)issues.push({...row,reason:'Measurement mismatch: recipe uses '+part.unit+', stock is '+row.stockUnit+(row.packageUnit?' (package: '+row.packageSize+' '+row.packageUnit+')':''),kind:'units'});
   else if(compatible.length>1&&(!linked||!compatible.some(i=>i.id===linked.id)))issues.push({...row,reason:'Multiple compatible stock items. Select the correct one in the recipe.',kind:'ambiguous'});
   else checked.push(row);
  }
@@ -5242,7 +5242,7 @@ renderBusiness=function(){
  const summary=document.createElement('p');summary.className='muted small';
  summary.textContent=report.checked.length+' recipe ingredient measurements matched; '+report.issues.length+' need attention. Checked against your currently saved data.';
  const helper=document.createElement('p');helper.className='muted small';
- helper.textContent='This check runs whenever you open Business & Reports. It does not change inventory, recipes or quantities.';
+ helper.textContent='Only checks measurement compatibility for ingredients that exist in My Stock. Untracked and recipe-only ingredients are excluded. No data is changed.';
  box.append(heading,summary,helper);
  const search=document.createElement('input');search.type='search';search.placeholder='Search mismatches by flavor or ingredient';
  box.append(search);
