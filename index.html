@@ -5436,21 +5436,25 @@ function psShowProductionRecipe(kind,planId,lineIndex){
  const line=plan?.lines?.[lineIndex];if(!line)return;
  const recipe=d.recipes.find(r=>String(r.id)===String(line.flavor));
  if(!recipe){modal('Recipe unavailable','<p class="notice">This flavor no longer has a saved recipe. No stock was changed.</p>');return}
- const batchYield=Number(recipe.yield)||1;
+ const shape=(d.shapes||[]).find(sh=>String(sh.id)===String(line.shape));
+ const resolvedYield=shape&&typeof effectiveYield==='function'?Number(effectiveYield(recipe,line)):NaN;
+ const savedShapeYield=Number(shape?.yield);
+ const recipeYield=Number(recipe.yield);
+ const batchYield=resolvedYield>0?resolvedYield:(savedShapeYield>0?savedShapeYield:(recipeYield>0?recipeYield:null));
  const count=Number(line.count)||0;
- const batches=Math.ceil(count/batchYield);
+ const batches=batchYield?Math.ceil(count/batchYield):null;
  const parts=Array.isArray(recipe.parts)?recipe.parts:[];
  const pulled=plan.deducted&&plan.used&&typeof plan.used==='object';
- const content='<p class="muted small">'+esc(plan.name||'Production')+' · '+fmt(count)+' planned pops · Saved recipe yield '+fmt(batchYield)+' per batch · '+fmt(batches)+' batch(es)</p>'+
+ const content='<p class="muted small">'+esc(plan.name||'Production')+' · '+fmt(count)+' planned pops · '+(batchYield?'Selected shape yield '+fmt(batchYield)+' pops per batch · '+fmt(batches)+' batch(es)':'Yield not saved for this shape — batch quantity unavailable')+'</p>'+
  '<p class="notice">'+(pulled?'Stock was pulled for this production. The quantities below are this flavor’s recipe requirements; the original stock pull is recorded for the whole event/order, not allocated by flavor.':'Stock has not been confirmed as pulled for this production.')+'</p>'+
  '<h3>Ingredients for this flavor</h3>'+
  (parts.length?parts.map(part=>{
   const item=d.items.find(i=>String(i.id)===String(part.id));
-  const required=Number(part.qty)*batches;
+  const required=batches===null?NaN:Number(part.qty)*batches;
   const valid=Number.isFinite(required);
   const totalPulled=pulled?Number(plan.used[part.id]):NaN;
   return '<div class="item"><strong>'+esc(item?.name||part.name||'Ingredient')+'</strong>'+
-  '<div class="small">'+(valid?fmt(required):esc(String(part.qty||'?')))+' '+esc(part.unit||item?.unit||'')+' required for '+fmt(batches)+' batch(es)</div>'+
+  '<div class="small">'+(valid?fmt(required):esc(String(part.qty||'?')))+' '+esc(part.unit||item?.unit||'')+' required for '+(batches===null?'unknown number of':' '+fmt(batches))+' batch(es)</div>'+
   '<div class="small muted">'+(pulled?(Number.isFinite(totalPulled)?'Total reserved/pulled for the entire '+(kind==='events'?'event':'order')+': '+fmt(totalPulled)+' '+esc(item?.unit||part.unit||''):'Not separately recorded in the stock-pull snapshot'):'Not yet pulled')+'</div></div>';
  }).join(''):'<p class="muted">No ingredients saved in this recipe.</p>')+
  (String(line.flavorNotes||line.notes||'').trim()?'<h3>Decoration plan</h3><p style="white-space:pre-wrap">'+esc(line.flavorNotes||line.notes)+'</p>':'')+
