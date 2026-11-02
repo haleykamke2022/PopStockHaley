@@ -5479,4 +5479,56 @@ renderProduction=function(){
  });
 };
 
+
+/* Per-flavor completion tracking, without modifying order/event status or stock. */
+function psFlavorCompletionKey(line,index){
+ return String(line.flavor||'')+'|'+String(line.shape||'')+'|'+index;
+}
+function psIsFlavorCompleted(plan,line,index){
+ const flags=plan.productionFlavorDone||{};
+ return Boolean(flags[psFlavorCompletionKey(line,index)]);
+}
+function psSetFlavorCompleted(kind,planId,index,checked){
+ const plan=d[kind]?.find(p=>String(p.id)===String(planId));
+ const line=plan?.lines?.[index];if(!line)return;
+ if(!plan.productionFlavorDone||typeof plan.productionFlavorDone!=='object')plan.productionFlavorDone={};
+ const key=psFlavorCompletionKey(line,index);
+ if(checked)plan.productionFlavorDone[key]=true;
+ else delete plan.productionFlavorDone[key];
+ save();render();
+}
+const psFlavorCompleteProductionRenderBefore=renderProduction;
+renderProduction=function(){
+ psFlavorCompleteProductionRenderBefore();
+ const root=$('production');if(!root)return;
+ root.querySelectorAll('[data-prod-action="details"]').forEach(details=>{
+  const kind=details.dataset.kind,id=details.dataset.id;
+  const plan=d[kind]?.find(p=>String(p.id)===String(id));
+  const card=details.closest('.card'),lines=card?.querySelector('.production-lines');
+  if(!plan||!lines)return;
+  lines.replaceChildren();
+  const all=plan.lines||[];
+  const complete=all.filter((line,i)=>psIsFlavorCompleted(plan,line,i)).length;
+  const progress=document.createElement('div');progress.className='small muted';
+  progress.textContent=complete+' of '+all.length+' flavors completed';
+  lines.append(progress);
+  all.forEach((line,i)=>{
+   const row=document.createElement('div');row.className='row wrap';
+   row.style.cssText='gap:8px;padding:8px 0;border-bottom:1px solid #e4e7e2';
+   const checkbox=document.createElement('input');checkbox.type='checkbox';
+   checkbox.checked=psIsFlavorCompleted(plan,line,i);
+   checkbox.setAttribute('aria-label','Mark '+flavorName(line.flavor)+' complete');
+   checkbox.style.cssText='width:22px;height:22px;flex-shrink:0';
+   checkbox.addEventListener('change',()=>psSetFlavorCompleted(kind,id,i,checkbox.checked));
+   const button=document.createElement('button');button.type='button';button.className='alt';
+   button.style.cssText='flex:1;min-width:150px;text-align:left;white-space:normal';
+   button.textContent=flavorName(line.flavor)+' · '+shapeName(line.shape)+' · '+fmt(Number(line.count)||0)+' pops · View recipe';
+   if(checkbox.checked)button.style.textDecoration='line-through';
+   button.addEventListener('click',()=>psShowProductionRecipe(kind,id,i));
+   row.append(checkbox,button);lines.append(row);
+  });
+  if(!all.length)lines.textContent='No flavors specified';
+ });
+};
+
 try{render();psWelcomeFirstLaunch()}catch(psError){window.psShowStartupError?.(psError?.stack||psError?.message||psError);psEmergencyRecovery(psError)}if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
