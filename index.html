@@ -5267,4 +5267,65 @@ renderBusiness=function(){
  root.prepend(box);
 };
 
+
+/* Flavor-specific production/decorating notes for orders and events. */
+const psFlavorNotesAddLineBefore=addLine;
+addLine=function(line={}){
+ psFlavorNotesAddLineBefore(line);
+ const host=$('planlines'),el=host?.lastElementChild;
+ if(!el||!el.classList.contains('planline')||el.querySelector('.ps-flavor-notes'))return;
+ const label=document.createElement('label');label.textContent='Flavor notes / decoration plan';
+ const field=document.createElement('textarea');field.className='ps-flavor-notes';
+ field.rows=2;field.placeholder='Colors, drizzle, sprinkles, toppers, packaging, etc.';
+ field.value=String(line.flavorNotes||line.notes||'');
+ el.append(label,field);
+};
+const psFlavorNotesSavePlanBefore=savePlan;
+savePlan=function(e,kind,x){
+ const notes=[...document.querySelectorAll('#planlines .planline')].map(el=>el.querySelector('.ps-flavor-notes')?.value||'');
+ const oldIds=new Set((d[kind]||[]).map(p=>p.id));
+ psFlavorNotesSavePlanBefore(e,kind,x);
+ const plan=x?(d[kind]||[]).find(p=>p.id===x):(d[kind]||[]).find(p=>!oldIds.has(p.id));
+ if(!plan||!Array.isArray(plan.lines)||plan.lines.length!==notes.length)return;
+ plan.lines.forEach((line,i)=>{line.flavorNotes=notes[i]});
+ save();render();
+};
+function psEditProductionFlavorNotes(kind,planId){
+ const plan=d[kind]?.find(p=>p.id===planId);if(!plan)return;
+ const lines=plan.lines||[];
+ const nodes=lines.map((line,i)=>{
+  const wrap=document.createElement('div');wrap.className='pair';
+  const label=document.createElement('label');
+  label.textContent=flavorName(line.flavor)+' · '+shapeName(line.shape)+' · '+line.count+' pops';
+  const area=document.createElement('textarea');area.rows=3;area.className='ps-prod-flavor-note';
+  area.value=String(line.flavorNotes||line.notes||'');
+  wrap.append(label,area);return wrap;
+ });
+ modal('Flavor decoration notes','<form id="psProductionFlavorNotes"><p class="muted small">These notes are for your production plan. Editing them does not change stock or recipes.</p><div id="psFlavorNotesHost"></div><div class="actions"><button type="submit">Save flavor notes</button></div></form>');
+ const form=$('psProductionFlavorNotes'),host=$('psFlavorNotesHost');if(!form||!host)return;
+ nodes.forEach(node=>host.append(node));
+ form.addEventListener('submit',e=>{
+  e.preventDefault();
+  host.querySelectorAll('.ps-prod-flavor-note').forEach((field,i)=>{if(lines[i])lines[i].flavorNotes=field.value});
+  save();$('dialog')?.close();render();
+ });
+}
+const psFlavorNotesProductionCardBefore=productionCard;
+productionCard=function(kind,p){
+ const base=psFlavorNotesProductionCardBefore(kind,p);
+ if(!p||!['orders','events'].includes(kind))return base;
+ const notes=(p.lines||[]).filter(l=>String(l.flavorNotes||l.notes||'').trim());
+ const detail='<div class="card" style="margin-top:8px"><strong>Flavor decoration plans</strong>'+
+ (notes.length?notes.map(l=>'<div class="item"><strong>'+esc(flavorName(l.flavor))+'</strong><div class="small" style="white-space:pre-wrap">'+esc(l.flavorNotes||l.notes)+'</div></div>').join(''):'<p class="muted small">No decoration notes yet.</p>')+
+ '<button type="button" class="alt ps-flavor-notes-edit" data-kind="'+kind+'" data-id="'+esc(p.id)+'">Edit flavor notes</button></div>';
+ return base+detail;
+};
+const psFlavorNotesProductionRenderBefore=renderProduction;
+renderProduction=function(){
+ psFlavorNotesProductionRenderBefore();
+ $('production')?.querySelectorAll('.ps-flavor-notes-edit').forEach(button=>{
+  button.addEventListener('click',()=>psEditProductionFlavorNotes(button.dataset.kind,button.dataset.id));
+ });
+};
+
 try{render();psWelcomeFirstLaunch()}catch(psError){window.psShowStartupError?.(psError?.stack||psError?.message||psError);psEmergencyRecovery(psError)}if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
