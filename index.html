@@ -5147,4 +5147,38 @@ receiveOpen=function(key){
  form.elements.sizeUnit.closest('div')?.append(hint);
 };
 
+
+/* Preserve shopping rows when undone, even if stock changed after marking bought. */
+const psUndoShopActionBefore=shopChecklistAction;
+shopChecklistAction=function(action,key){
+ const listKey=shopKey();
+ const state=d.shoppingChecklists[listKey]||{bought:{},archived:false};
+ if(action==='undo'){
+  const row=shopNeeds().find(r=>r.key===key)||state.boughtRows?.[key];
+  if(row){state.undoRows||={};state.undoRows[key]={...row};}
+  delete state.bought[key];d.shoppingChecklists[listKey]=state;
+  save();renderShopping();return;
+ }
+ if(action==='bought'){
+  const row=shopNeeds().find(r=>r.key===key)||state.undoRows?.[key];
+  if(row){state.boughtRows||={};state.boughtRows[key]={...row};}
+  if(state.undoRows)delete state.undoRows[key];
+  state.bought[key]=true;state.archived=false;d.shoppingChecklists[listKey]=state;
+  save();renderShopping();return;
+ }
+ if(action==='restart'){delete state.undoRows;delete state.boughtRows;}
+ return psUndoShopActionBefore(action,key);
+};
+const psUndoShopNeedsBefore=shopNeeds;
+shopNeeds=function(){
+ const rows=psUndoShopNeedsBefore();
+ const state=d.shoppingChecklists[shopKey()];
+ if(!state?.undoRows)return rows;
+ const byKey=new Map(rows.map(row=>[row.key,row]));
+ for(const [key,row] of Object.entries(state.undoRows)){
+  if(!byKey.has(key)&&!state.bought?.[key])byKey.set(key,row);
+ }
+ return [...byKey.values()].sort((a,b)=>String(a.name).localeCompare(String(b.name)));
+};
+
 try{render();psWelcomeFirstLaunch()}catch(psError){window.psShowStartupError?.(psError?.stack||psError?.message||psError);psEmergencyRecovery(psError)}if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
