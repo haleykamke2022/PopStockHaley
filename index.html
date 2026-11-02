@@ -5429,4 +5429,54 @@ renderHome=function(){
  if(quick)quick.after(section);else root.prepend(section);
 };
 
+
+/* Read-only recipe drilldown in Production: planned quantities and stock-pull transparency. */
+function psShowProductionRecipe(kind,planId,lineIndex){
+ const plan=d[kind]?.find(p=>String(p.id)===String(planId));
+ const line=plan?.lines?.[lineIndex];if(!line)return;
+ const recipe=d.recipes.find(r=>String(r.id)===String(line.flavor));
+ if(!recipe){modal('Recipe unavailable','<p class="notice">This flavor no longer has a saved recipe. No stock was changed.</p>');return}
+ const batchYield=Number(recipe.yield)||1;
+ const count=Number(line.count)||0;
+ const batches=Math.ceil(count/batchYield);
+ const parts=Array.isArray(recipe.parts)?recipe.parts:[];
+ const pulled=plan.deducted&&plan.used&&typeof plan.used==='object';
+ const content='<p class="muted small">'+esc(plan.name||'Production')+' · '+fmt(count)+' planned pops · Saved recipe yield '+fmt(batchYield)+' per batch · '+fmt(batches)+' batch(es)</p>'+
+ '<p class="notice">'+(pulled?'Stock was pulled for this production. The quantities below are this flavor’s recipe requirements; the original stock pull is recorded for the whole event/order, not allocated by flavor.':'Stock has not been confirmed as pulled for this production.')+'</p>'+
+ '<h3>Ingredients for this flavor</h3>'+
+ (parts.length?parts.map(part=>{
+  const item=d.items.find(i=>String(i.id)===String(part.id));
+  const required=Number(part.qty)*batches;
+  const valid=Number.isFinite(required);
+  const totalPulled=pulled?Number(plan.used[part.id]):NaN;
+  return '<div class="item"><strong>'+esc(item?.name||part.name||'Ingredient')+'</strong>'+
+  '<div class="small">'+(valid?fmt(required):esc(String(part.qty||'?')))+' '+esc(part.unit||item?.unit||'')+' required for '+fmt(batches)+' batch(es)</div>'+
+  '<div class="small muted">'+(pulled?(Number.isFinite(totalPulled)?'Total reserved/pulled for the entire '+(kind==='events'?'event':'order')+': '+fmt(totalPulled)+' '+esc(item?.unit||part.unit||''):'Not separately recorded in the stock-pull snapshot'):'Not yet pulled')+'</div></div>';
+ }).join(''):'<p class="muted">No ingredients saved in this recipe.</p>')+
+ (String(line.flavorNotes||line.notes||'').trim()?'<h3>Decoration plan</h3><p style="white-space:pre-wrap">'+esc(line.flavorNotes||line.notes)+'</p>':'')+
+ '<p class="muted small">View only. Opening this recipe does not change stock.</p>';
+ modal('Recipe: '+(recipe.name||flavorName(line.flavor)),content);
+}
+const psRecipeProductionRenderBefore=renderProduction;
+renderProduction=function(){
+ psRecipeProductionRenderBefore();
+ const root=$('production');if(!root)return;
+ root.querySelectorAll('[data-prod-action="details"]').forEach(details=>{
+  const kind=details.dataset.kind,id=details.dataset.id;
+  const plan=d[kind]?.find(p=>String(p.id)===String(id));
+  if(!plan)return;
+  const card=details.closest('.card');const lines=card?.querySelector('.production-lines');
+  if(!lines)return;
+  lines.replaceChildren();
+  (plan.lines||[]).forEach((line,i)=>{
+   const button=document.createElement('button');button.type='button';button.className='alt';
+   button.style.cssText='display:block;width:100%;text-align:left;margin:6px 0;white-space:normal';
+   button.textContent=flavorName(line.flavor)+' · '+shapeName(line.shape)+' · '+fmt(Number(line.count)||0)+' pops  · View recipe';
+   button.addEventListener('click',()=>psShowProductionRecipe(kind,id,i));
+   lines.append(button);
+  });
+  if(!plan.lines?.length)lines.textContent='No flavors specified';
+ });
+};
+
 try{render();psWelcomeFirstLaunch()}catch(psError){window.psShowStartupError?.(psError?.stack||psError?.message||psError);psEmergencyRecovery(psError)}if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
