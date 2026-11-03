@@ -6467,4 +6467,107 @@ editShape=function(x=''){
  size.after(notice);
 };
 
+
+/* Simple per-shape weight editor with estimated/measured provenance. */
+const psEasyWeightEstimateBefore=psShapeWeightEstimate;
+psShapeWeightEstimate=function(shapeId,depth,recipeId){
+ const sh=(d.shapes||[]).find(x=>String(x.id)===String(shapeId));
+ if(!sh)return null;
+ // A truly measured pop weight or recorded measured production history wins.
+ const measured=Number(sh.doughWeightG);
+ if(measured>0)return {oz:measured/ps6bGramsPerOz,grams:measured,type:'measured',
+  source:'Actually measured weight for '+sh.name};
+ const learned=psShapeLearnedWeight(shapeId,recipeId)||psShapeLearnedWeight(shapeId);
+ if(learned?.grams>0)return {oz:learned.grams/ps6bGramsPerOz,grams:learned.grams,type:'measured',source:learned.source};
+ const estimate=Number(sh.estimatedPopWeightOz);
+ if(estimate>0)return {oz:estimate,grams:estimate*ps6bGramsPerOz,type:'user-estimate',
+  source:'Saved estimated weight for '+sh.name+' (not yet verified)'};
+ return psEasyWeightEstimateBefore(shapeId,depth,recipeId);
+};
+const psEasyWeightEditBefore=editShape;
+editShape=function(x=''){
+ psEasyWeightEditBefore(x);
+ const form=$('dialogBody')?.querySelector('form');if(!form)return;
+ const sh=(d.shapes||[]).find(v=>String(v.id)===String(x))||{};
+ const block=document.createElement('section');
+ block.className='card ps-easy-weight';
+ block.style.cssText='margin:12px 0;padding:14px';
+ const heading=document.createElement('h4');heading.textContent='Weight per pop';
+ const desc=document.createElement('p');desc.className='muted small';
+ desc.textContent='Only the weight of ONE undipped dough pop, not the whole batch. You can save an estimate now and replace it with your own measurement later.';
+ const label=document.createElement('label');label.textContent='Weight of one pop';
+ const pair=document.createElement('div');pair.className='formgrid';
+ const amount=document.createElement('input');amount.className='ps-easy-weight-amount';
+ amount.type='number';amount.min='0.01';amount.step='any';amount.inputMode='decimal';
+ amount.placeholder='e.g., 1.45';
+ const unit=document.createElement('select');unit.className='ps-easy-weight-unit';unit.setAttribute('aria-label','Weight unit');
+ unit.innerHTML='<option value="oz">ounces</option><option value="g">grams</option>';
+ pair.append(amount,unit);
+ const typeLabel=document.createElement('label');typeLabel.textContent='Where did this number come from?';
+ const type=document.createElement('select');type.className='ps-easy-weight-type';
+ type.innerHTML='<option value="estimated">Estimated / provided by someone else</option><option value="measured">Actually weighed one cut pop</option>';
+ const note=document.createElement('p');note.className='muted small';
+ const measured=Number(sh.doughWeightG);
+ const estimated=Number(sh.estimatedPopWeightOz);
+ if(measured>0){amount.value=(measured/ps6bGramsPerOz).toFixed(3).replace(/0+$/,'').replace(/\.$/,'');type.value='measured';}
+ else if(estimated>0){amount.value=String(estimated);type.value='estimated';}
+ else {type.value='estimated';}
+ const refresh=()=>{
+  note.textContent=amount.value.trim()?
+   (type.value==='estimated'?'PopStock will treat this as an approximate reference, not an actual measurement.':
+    'PopStock will save this as your own measured weight and use it for future calculations.'):
+   'Leave blank if unknown. Standard sizes will use the Daisy Makes reference chart.';
+ };
+ amount.addEventListener('input',refresh);
+ type.addEventListener('change',refresh);refresh();
+ block.append(heading,desc,label,pair,typeLabel,type,note);
+ const advanced=form.querySelector('.ps-simple-shape-advanced');
+ if(advanced)advanced.before(block);else form.querySelector('.actions')?.before(block);
+};
+const psEasyWeightSaveBefore=saveShape;
+saveShape=function(e,x){
+ const form=e.target,block=form.querySelector('.ps-easy-weight');
+ if(!block)return psEasyWeightSaveBefore(e,x);
+ const amount=block.querySelector('.ps-easy-weight-amount');
+ const unit=block.querySelector('.ps-easy-weight-unit');
+ const type=block.querySelector('.ps-easy-weight-type');
+ const raw=amount.value.trim();
+ const n=raw?Number(raw):null;
+ if(n!==null&&!(Number.isFinite(n)&&n>0)){
+  e.preventDefault();alert('Enter a positive weight for one pop, or leave it blank.');return;
+ }
+ const oz=n===null?null:n/(unit.value==='g'?ps6bGramsPerOz:1);
+ const grams=oz===null?null:oz*ps6bGramsPerOz;
+ // Keep the existing measured field in sync so older save handlers do not
+ // mislabel estimated values as actual measurements.
+ const original=form.elements.doughWeightG;
+ if(original){
+  original.value=type.value==='measured'&&grams!==null?String(grams):'';
+ }
+ const oldIds=new Set((d.shapes||[]).map(sh=>sh.id));
+ psEasyWeightSaveBefore(e,x);
+ if($('dialog')?.open)return;
+ const sh=x?(d.shapes||[]).find(v=>String(v.id)===String(x)):(d.shapes||[]).find(v=>!oldIds.has(v.id));
+ if(!sh)return;
+ if(type.value==='estimated'&&oz!==null){
+  const prev=Number(sh.estimatedPopWeightOz);
+  if(!(prev>0)||Math.abs(prev-oz)>0.000001){
+   d.shapeWeightHistory||=[];
+   d.shapeWeightHistory.push({id:id(),shapeId:sh.id,grams,date:new Date().toISOString(),size:sh.popSize||'custom',
+    depth:psWfDepth(sh),source:'User-provided approximate weight (not measured)',type:'estimate'});
+  }
+  sh.estimatedPopWeightOz=oz;
+  delete sh.doughWeightG;
+ }else if(type.value==='measured'&&oz!==null){
+  sh.doughWeightG=grams;
+  delete sh.estimatedPopWeightOz;
+ }else if(raw===''){
+  // A blank editor should not silently discard prior measurements unless user
+  // explicitly edits and clears; retain previous saved values.
+  const old=(d.shapeWeightHistory||[]).slice().reverse().find(h=>String(h.shapeId)===String(sh.id)&&Number(h.grams)>0&&h.type==='estimate');
+  if(!Number(sh.doughWeightG)&&!Number(sh.estimatedPopWeightOz)&&old)sh.estimatedPopWeightOz=old.grams/ps6bGramsPerOz;
+ }
+ save();render();
+};
+
 try{render();psWelcomeFirstLaunch()}catch(psError){window.psShowStartupError?.(psError?.stack||psError?.message||psError);psEmergencyRecovery(psError)}if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
