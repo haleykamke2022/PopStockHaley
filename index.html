@@ -6570,4 +6570,162 @@ saveShape=function(e,x){
  save();render();
 };
 
+
+/* Separate cakesicle and regular popper reference weights. */
+const psCakesicleWeightTable={
+ small:[0.8,1.0,1.2,1.4,1.6],
+ medium:[1.2,1.6,1.8,2.0,2.4],
+ large:[1.6,2.0,2.4,2.8,3.2],
+ xl:[2.0,2.6,3.0,3.6,4.0]
+};
+function psPopperCategory(shape){
+ return shape?.popperType==='cakesicle'?'cakesicle':'cakepop';
+}
+function psCakesicleReference(size,depth){
+ const n=psDepths.indexOf(Number(depth));
+ return n>=0?(psCakesicleWeightTable[size]?.[n]||null):null;
+}
+const psCakesicleShapeWeightBefore=psShapeWeightEstimate;
+psShapeWeightEstimate=function(shapeId,depth,recipeId){
+ const sh=(d.shapes||[]).find(v=>String(v.id)===String(shapeId));
+ if(!sh||psPopperCategory(sh)!=='cakesicle')return psCakesicleShapeWeightBefore(shapeId,depth,recipeId);
+ const direct=Number(sh.doughWeightG);
+ if(direct>0)return {oz:direct/ps6bGramsPerOz,grams:direct,type:'measured',source:'Measured cakesicle dough weight'};
+ const recorded=psShapeLearnedWeight(shapeId,recipeId)||psShapeLearnedWeight(shapeId);
+ if(recorded?.grams>0)return {oz:recorded.grams/ps6bGramsPerOz,grams:recorded.grams,type:'measured',source:recorded.source};
+ const estimated=Number(sh.estimatedPopWeightOz);
+ if(estimated>0)return {oz:estimated,grams:estimated*ps6bGramsPerOz,type:'user-estimate',source:'Saved cakesicle weight estimate'};
+ if(sh.popSize==='custom')return null;
+ const ref=psCakesicleReference(sh.popSize,depth);
+ return ref>0?{oz:ref,grams:ref*ps6bGramsPerOz,type:'reference',source:'Daisy Makes cakesicle '+sh.popSize+' at '+psDepthLabel(depth)+' inch'}:null;
+};
+ps6cPieceWeight=function(shapeId,depth){
+ return psShapeWeightEstimate(shapeId,depth);
+};
+const psCakesiclePerPopBefore=psWfEstimatedPerPop;
+psWfEstimatedPerPop=function(shape,recipe){
+ if(psPopperCategory(shape)!=='cakesicle')return psCakesiclePerPopBefore(shape,recipe);
+ const depth=Number(recipe?.doughDepthOverride)||psWfDepth(shape);
+ return psShapeWeightEstimate(shape.id,depth,recipe?.id);
+};
+const psCakesiclePlanningPieceBefore=psPlanEstimatedPiece;
+psPlanEstimatedPiece=function(recipe,shape){
+ if(psPopperCategory(shape)==='cakesicle')return psWfEstimatedPerPop(shape,recipe);
+ return psCakesiclePlanningPieceBefore(recipe,shape);
+};
+const psCakesicleFallbackBefore=psWfFallbackCount;
+psWfFallbackCount=function(shape){
+ // Do not use disc-pop-derived first-use yields for cakesicles.
+ if(psPopperCategory(shape)==='cakesicle')return Number(shape?.observedYield)>0?Number(shape.observedYield):null;
+ return psCakesicleFallbackBefore(shape);
+};
+const psCakesicleShapeEditBefore=editShape;
+editShape=function(x=''){
+ psCakesicleShapeEditBefore(x);
+ const form=$('dialogBody')?.querySelector('form');
+ if(!form||!form.elements.psPopSize)return;
+ const sh=(d.shapes||[]).find(v=>String(v.id)===String(x));
+ const block=document.createElement('section');block.className='card ps-cakesicle-kind';
+ const label=document.createElement('label');label.textContent='What kind of popper is this?';
+ const select=document.createElement('select');select.name='psPopperCategory';
+ select.innerHTML='<option value="cakepop">Cake pop / disc / regular shape</option><option value="cakesicle">Cakesicle</option>';
+ select.value=psPopperCategory(sh);
+ const hint=document.createElement('p');hint.className='muted small';
+ const guide=document.createElement('p');guide.className='notice';guide.setAttribute('aria-live','polite');
+ block.append(label,select,hint,guide);
+ const size=form.elements.psPopSize;
+ const sizeLabel=size.previousElementSibling;
+ const parent=size.closest('div')||form;
+ if(sizeLabel?.parentElement===size.parentElement)sizeLabel.before(block);
+ else form.querySelector('.actions')?.before(block);
+ const extra= form.querySelector('.ps-easy-weight');
+ const refresh=()=>{
+  const kind=select.value,chosenSize=size.value||'';
+  const raw=form.elements.doughThicknessIn?.value?.trim()||'';
+  const parsed=raw?ps6bParseInches(raw):psDefaultDepth();
+  const depth=psDepths.includes(parsed)?parsed:psDefaultDepth();
+  if(kind==='cakesicle'){
+   hint.textContent='Cakesicles use their own Daisy Makes weight chart. Custom specialty cakesicles can use an estimated or measured weight per pop.';
+   const oz=psCakesicleReference(chosenSize,depth);
+   guide.textContent=oz>0?'Cakesicle reference: '+oz.toFixed(2)+' oz per pop at '+psDepthLabel(depth)+' inch dough thickness.':
+    'Custom cakesicle: enter a reference or measured weight in Weight per pop below. Size-only calculations are not available for Custom.';
+  }else{
+   hint.textContent='Regular cake pop shapes use the standard Daisy Makes weight chart.';
+   const oz=ps6bReference(chosenSize,depth);
+   guide.textContent=oz>0?'Regular popper reference: '+oz.toFixed(2)+' oz per pop at '+psDepthLabel(depth)+' inch dough thickness.':
+    'Custom shape: record a weight per pop to calculate yields.';
+  }
+  const oldForecast=form.querySelector('.ps-wf-forecast');
+  if(oldForecast)oldForecast.style.display=kind==='cakesicle'?'none':'';
+  const standardReference=form.querySelector('#ps6bWeightInfo');
+  if(standardReference)standardReference.closest('section.card')?.style.setProperty('display',kind==='cakesicle'?'none':'');
+ };
+ select.addEventListener('change',refresh);
+ for(const name of ['psPopSize','doughThicknessIn']){
+  form.elements[name]?.addEventListener('input',refresh);
+  form.elements[name]?.addEventListener('change',refresh);
+ }
+ refresh();
+};
+const psCakesicleShapeSaveBefore=saveShape;
+saveShape=function(e,x){
+ const form=e.target,kind=form.elements.psPopperCategory?.value;
+ const ids=new Set((d.shapes||[]).map(sh=>sh.id));
+ const prior=x?(d.shapes||[]).find(sh=>String(sh.id)===String(x)):null;
+ const oldKind=psPopperCategory(prior);
+ const previous=Number(prior?.yield)||0;
+ psCakesicleShapeSaveBefore(e,x);
+ if($('dialog')?.open||!['cakesicle','cakepop'].includes(kind))return;
+ const shape=x?(d.shapes||[]).find(sh=>String(sh.id)===String(x)):(d.shapes||[]).find(sh=>!ids.has(sh.id));
+ if(!shape)return;
+ shape.popperType=kind;
+ if(kind==='cakesicle'&&oldKind!=='cakesicle'&&shape.yieldSource!=='observed'){
+  if(!('originalGuessedYield' in shape)&&previous>0)shape.originalGuessedYield=previous;
+  shape.yieldSource='legacy-unverified';
+  shape.yieldKnown=false;
+ }
+ save();render();
+};
+const psCakesicleProductionBefore=renderProduction;
+renderProduction=function(){
+ psCakesicleProductionBefore();
+ $('production')?.querySelectorAll('.ps6c-host').forEach(host=>{
+  const selected=host.querySelector('.ps6c-line');
+  const preview=host.querySelector('.ps-simple-yield-result');
+  const refPanel=host.querySelector('.ps-yield-inline-size');
+  if(!selected||!refPanel)return;
+  const plan=d[host.dataset.kind]?.find(p=>String(p.id)===String(host.dataset.id));
+  const lines=(plan?.lines||[]).filter(l=>d.recipes.some(r=>r.id===l.flavor)&&d.shapes.some(sh=>sh.id===l.shape));
+  const update=()=>{
+   const line=lines[Number(selected.value)||0],shape=d.shapes.find(sh=>sh.id===line?.shape);
+   if(!shape)return;
+   const kind=psPopperCategory(shape);
+   if(kind==='cakesicle'){
+    const select=refPanel.querySelector('select[aria-label="Popper size used for yield calculation"]');
+    const custom=refPanel.querySelector('.ps-inline-custom-weight');
+    if(select&&shape.popSize!=='custom'){
+     // Show the correct category where a size still needs confirmation.
+     const p=refPanel.querySelector('.small.muted');
+     const recipe=d.recipes.find(r=>r.id===line?.flavor);
+     const depth=Number(recipe?.doughDepthOverride)||psWfDepth(shape);
+     const oz=psCakesicleReference(shape.popSize,depth);
+     if(p&&oz>0)p.textContent='Cakesicle reference: '+oz.toFixed(2)+' oz per pop at '+psDepthLabel(depth)+' inch.';
+    }
+    const weight=host.querySelector('.ps6c-weight'),unit=host.querySelector('.ps6c-unit');
+    if(preview&&weight&&unit&&Number(weight.value)>0){
+     const recipe=d.recipes.find(r=>r.id===line?.flavor);
+     const piece=psWfEstimatedPerPop(shape,recipe);
+     const totalOz=Number(weight.value)/(unit.value==='g'?ps6bGramsPerOz:1);
+     preview.textContent=piece?.oz>0?'Estimated yield: '+Math.floor(totalOz/piece.oz)+' cakesicles. '+totalOz.toFixed(2)+' oz of dough ÷ '+piece.oz.toFixed(2)+' oz each ('+piece.source+').':
+      'Custom cakesicle: enter the weight of one undipped piece in My Shapes to calculate your yield.';
+    }
+    if(custom&&shape.popSize!=='custom')custom.style.display='none';
+   }
+  };
+  host.addEventListener('input',update);
+  host.addEventListener('change',update);
+  update();
+ });
+};
+
 try{render();psWelcomeFirstLaunch()}catch(psError){window.psShowStartupError?.(psError?.stack||psError?.message||psError);psEmergencyRecovery(psError)}if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
