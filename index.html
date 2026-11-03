@@ -5535,4 +5535,123 @@ renderProduction=function(){
  });
 };
 
+
+/* Planning dough-weight yield estimator: advisory until explicitly applied. */
+function psPlanEstimatedPiece(recipe,shape){
+ if(!recipe||!shape)return null;
+ const actual=(d.doughHistory||[]).filter(h=>h.recipeId===recipe.id&&h.shapeId===shape.id&&!h.exclude&&Number(h.finishedPops)>0&&Number(h.weightOz)>0);
+ if(actual.length){
+  const totalPops=actual.reduce((sum,h)=>sum+Number(h.finishedPops),0);
+  const totalOz=actual.reduce((sum,h)=>sum+Number(h.weightOz),0);
+  if(totalPops>0&&totalOz>0)return {oz:totalOz/totalPops,source:'Recorded dough weight and finished pop counts ('+actual.length+' record'+(actual.length===1?'':'s')+')'};
+ }
+ const depth=Number(recipe.doughDepthOverride)||psDefaultDepth();
+ const measured=ps6cPieceWeight(shape.id,depth);
+ if(measured&&Number(measured.oz)>0)return measured;
+ const typical=ps6cRecipeWeight(recipe.id);
+ const yieldPerBatch=Number(shape.yield);
+ if(typical&&Number(typical.oz)>0&&yieldPerBatch>0){
+  return {oz:typical.oz/yieldPerBatch,source:'Saved typical recipe dough weight divided by saved shape yield ('+yieldPerBatch+' per batch)'};
+ }
+ return null;
+}
+function psPlanDoughEstimatorUpdate(row){
+ const box=row?.querySelector('.ps-plan-yield-estimate');
+ if(!box)return;
+ const recipe=d.recipes.find(r=>r.id===row.querySelector('.flavor')?.value);
+ const shape=d.shapes.find(sh=>sh.id===row.querySelector('.shape')?.value);
+ const amount=box.querySelector('.ps-plan-dough-weight');
+ const unit=box.querySelector('.ps-plan-dough-unit');
+ const output=box.querySelector('.ps-plan-dough-result');
+ const apply=box.querySelector('.ps-plan-use-estimate');
+ const manual=amount.value.trim();
+ const weight=manual?Number(manual):null;
+ const valid=weight!==null&&Number.isFinite(weight)&&weight>0;
+ const typical=recipe?ps6cRecipeWeight(recipe.id):null;
+ const inputOz=valid?weight/(unit.value==='g'?28.349523125:1):null;
+ const estimatedDoughOz=inputOz!==null?inputOz:(manual?null:typical?.oz||null);
+ const piece=psPlanEstimatedPiece(recipe,shape);
+ apply.disabled=true;
+ delete box.dataset.estimatedCount;
+ if(!recipe||!shape){output.textContent='Choose a flavor and popper shape to calculate estimated pops.';return}
+ if(weight!==null&&!valid){output.textContent='Enter a finished dough weight greater than zero.';return}
+ if(!(estimatedDoughOz>0)){output.textContent='Enter a finished dough weight above, or save a typical finished dough weight in this flavor’s recipe.';return}
+ if(!piece||!(piece.oz>0)){output.textContent='No weight per pop is available yet. Save a measured popper weight, a supported Daisy Makes shape, or a typical dough weight with a saved shape yield.';return}
+ const n=Math.floor(estimatedDoughOz/piece.oz);
+ if(n<=0){output.textContent='This weight is less than the estimated dough required for one pop ('+(piece.oz*28.349523125).toFixed(1)+' g each).';return}
+ box.dataset.estimatedCount=String(n);
+ apply.disabled=false;
+ const planned=Number(row.querySelector('.count')?.value)||0;
+ const difference=n-planned;
+ const basis=inputOz!==null?'Entered finished dough weight':'Saved typical finished dough weight ('+typical.source+')';
+ output.textContent='Estimated '+n+' pops from '+(estimatedDoughOz*28.349523125).toFixed(1)+' g of dough. '+basis+'. Per-pop weight: '+(piece.oz*28.349523125).toFixed(1)+' g ('+piece.source+'). '+(planned>0?(difference>=0?'About '+difference+' above':'About '+Math.abs(difference)+' below')+' your planned '+planned+' pops.':'');
+}
+const psPlanDoughAddLineBefore=addLine;
+addLine=function(line={}){
+ psPlanDoughAddLineBefore(line);
+ const row=$('planlines')?.lastElementChild;
+ if(!row||!row.classList.contains('planline')||row.querySelector('.ps-plan-yield-estimate'))return;
+ const panel=document.createElement('details');
+ panel.className='ps-plan-yield-estimate';
+ panel.style.cssText='margin-top:10px;padding:10px;border:1px solid #dce3dc;border-radius:10px';
+ panel.open=Number(line.planningDoughOz)>0;
+ panel.innerHTML='<summary style="cursor:pointer"><strong>Estimate pops from dough weight (optional)</strong></summary>'+
+ '<p class="muted small">Enter the finished dough weight for this flavor. The estimate uses recorded pop weights, a measured popper weight, a Daisy Makes reference, or saved recipe-and-shape measurements.</p>'+
+ '<label>Finished dough weight</label>'+
+ '<div class="formgrid"><input class="ps-plan-dough-weight" type="number" step="any" min="0" inputmode="decimal" placeholder="Enter weight"><select class="ps-plan-dough-unit" aria-label="Dough weight unit"><option value="oz">oz</option><option value="g">g</option></select></div>'+
+ '<p class="muted small ps-plan-dough-result" role="status"></p>'+
+ '<button type="button" class="alt ps-plan-use-estimate" disabled>Use estimate as planned pop quantity</button>'+
+ '<p class="muted small">Estimate only. Your saved yield per cake batch stays unchanged. No ingredients are deducted here.</p>';
+ const input=panel.querySelector('.ps-plan-dough-weight'),unit=panel.querySelector('.ps-plan-dough-unit'),apply=panel.querySelector('.ps-plan-use-estimate');
+ const chosenUnit=line.planningDoughUnit==='g'?'g':'oz';
+ unit.value=chosenUnit;
+ if(Number(line.planningDoughOz)>0)input.value=chosenUnit==='g'?(Number(line.planningDoughOz)*28.349523125).toFixed(1):String(Number(line.planningDoughOz));
+ let previousUnit=unit.value;
+ unit.addEventListener('change',()=>{
+  const n=Number(input.value);
+  if(input.value.trim()&&Number.isFinite(n)&&n>0){
+   input.value=(previousUnit==='oz'&&unit.value==='g'?n*28.349523125:previousUnit==='g'&&unit.value==='oz'?n/28.349523125:n).toFixed(unit.value==='g'?1:2);
+  }
+  previousUnit=unit.value;
+  psPlanDoughEstimatorUpdate(row);
+ });
+ input.addEventListener('input',()=>psPlanDoughEstimatorUpdate(row));
+ row.addEventListener('input',e=>{if(e.target!==input)psPlanDoughEstimatorUpdate(row)});
+ row.addEventListener('change',e=>{if(e.target!==unit)psPlanDoughEstimatorUpdate(row)});
+ apply.addEventListener('click',()=>{
+  const n=Number(panel.dataset.estimatedCount),count=row.querySelector('.count');
+  if(!count||!Number.isInteger(n)||n<1)return;
+  count.value=String(n);
+  count.dispatchEvent(new Event('input',{bubbles:true}));
+  count.dispatchEvent(new Event('change',{bubbles:true}));
+  psPlanDoughEstimatorUpdate(row);
+ });
+ row.append(panel);
+ psPlanDoughEstimatorUpdate(row);
+};
+const psPlanDoughSaveBefore=savePlan;
+savePlan=function(e,kind,x){
+ if(!['orders','events'].includes(kind))return psPlanDoughSaveBefore(e,kind,x);
+ const drafts=[...e.target.querySelectorAll('#planlines .planline')].map(row=>{
+  const box=row.querySelector('.ps-plan-yield-estimate');
+  const field=box?.querySelector('.ps-plan-dough-weight');
+  const unit=box?.querySelector('.ps-plan-dough-unit')?.value==='g'?'g':'oz';
+  const raw=field?.value.trim()||'';
+  const n=raw?Number(raw):null;
+  return {oz:n!==null&&Number.isFinite(n)&&n>0?n/(unit==='g'?28.349523125:1):null,unit};
+ });
+ const priorIds=new Set((d[kind]||[]).map(p=>p.id));
+ const result=psPlanDoughSaveBefore(e,kind,x);
+ // Only persist this optional estimate if the existing save actually succeeded.
+ if($('dialog')?.open)return result;
+ const plan=x?d[kind].find(p=>p.id===x):d[kind].find(p=>!priorIds.has(p.id));
+ if(!plan||plan.status!=='Planned'||plan.lines?.length!==drafts.length)return result;
+ plan.lines.forEach((line,i)=>{
+  if(drafts[i].oz!==null){line.planningDoughOz=drafts[i].oz;line.planningDoughUnit=drafts[i].unit;}
+  else{delete line.planningDoughOz;delete line.planningDoughUnit;}
+ });
+ save();render();
+ return result;
+};
+
 try{render();psWelcomeFirstLaunch()}catch(psError){window.psShowStartupError?.(psError?.stack||psError?.message||psError);psEmergencyRecovery(psError)}if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
