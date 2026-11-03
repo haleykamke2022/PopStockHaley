@@ -5883,4 +5883,229 @@ psPlanEstimatedPiece=function(recipe,shape){
  return psShapeMeasuredPlanningBefore(recipe,shape);
 };
 
+
+/* Weight-first Daisy Makes yields: personal release. */
+const psWfAnchorCircleCount=25;
+const psWfAnchorCircleDepth=0.5;
+function psWfLargeCircle(shape){return /(?:^|[\s_-])large[\s_-]*circle(?:$|[\s_-])/i.test(String(shape?.name||''))}
+function psWfSize(shape){
+ const existing=String(shape?.popSize||'').toLowerCase();
+ if(['small','medium','large','xl'].includes(existing))return existing;
+ const n=String(shape?.name||'');
+ if(/\b(?:extra[\s-]*large|x[\s-]*large|xl)\b/i.test(n))return 'xl';
+ if(/\bsmall\b/i.test(n))return 'small';
+ if(/\bmedium\b/i.test(n))return 'medium';
+ if(/\blarge\b/i.test(n))return 'large';
+ return '';
+}
+function psWfDepth(shape){
+ const n=Number(shape?.doughThicknessIn);
+ return psDepths.includes(n)?n:psDefaultDepth();
+}
+function psWfReference(shape,depth){
+ const size=psWfSize(shape);
+ const oz=size?ps6bReference(size,depth):null;
+ return oz>0?{oz,source:'Daisy Makes '+size+' / '+psDepthLabel(depth)+' inch reference',type:'reference'}:null;
+}
+function psWfEstimatedPerPop(shape,recipe){
+ if(!shape)return null;
+ const depth=Number(recipe?.doughDepthOverride)||psWfDepth(shape);
+ const fromSaved=psShapeWeightEstimate(shape.id,depth,recipe?.id);
+ if(fromSaved?.oz>0)return fromSaved;
+ return psWfReference(shape,depth);
+}
+function psWfFallbackCount(shape){
+ if(psWfLargeCircle(shape))return psWfAnchorCircleCount;
+ const depth=psWfDepth(shape);
+ const ref=psWfReference(shape,depth);
+ const base=ps6bReference('large',psWfAnchorCircleDepth);
+ if(!ref||!(base>0))return null;
+ // Approximation calibrated from the observed large circle, not a measured minimum.
+ return Math.max(1,Math.floor(psWfAnchorCircleCount*base/ref.oz));
+}
+function psWfSource(shape,recipe){
+ const weight=ps6cRecipeWeight(recipe?.id);
+ const piece=psWfEstimatedPerPop(shape,recipe);
+ if(weight?.oz>0&&piece?.oz>0){
+  return {yield:Math.max(1,Math.floor(weight.oz/piece.oz)),method:'weight',weight,piece};
+ }
+ const records=(d.doughHistory||[]).filter(h=>String(h.recipeId)===String(recipe?.id)&&String(h.shapeId)===String(shape?.id)&&!h.exclude&&Number(h.finishedPops)>0&&Number(h.batchCount)>0);
+ if(records.length){
+  const sum=records.reduce((n,h)=>n+Number(h.finishedPops),0);
+  const batches=records.reduce((n,h)=>n+Number(h.batchCount),0);
+  if(sum>0&&batches>0)return {yield:Math.max(1,Math.floor(sum/batches)),method:'recorded'};
+ }
+ if(Number(shape?.observedYield)>0)return {yield:Number(shape.observedYield),method:'observed'};
+ if(shape?.yieldSource==='observed'&&Number(shape.yield)>0)return {yield:Number(shape.yield),method:'observed'};
+ const estimate=psWfFallbackCount(shape);
+ if(estimate>0)return {yield:estimate,method:'size'};
+ return Number(shape?.yield)>0?{yield:Number(shape.yield),method:'legacy'}:{yield:null,method:'unknown'};
+}
+function psWfMigrate(){
+ d.settings ||= {};
+ if(d.settings.psWeightFirstModelVersion>=1)return;
+ for(const shape of (d.shapes||[])){
+  if(!('originalGuessedYield' in shape)&&Number(shape.yield)>0)shape.originalGuessedYield=Number(shape.yield);
+  const inferred=psWfSize(shape);
+  if(!shape.popSize&&inferred){shape.popSize=inferred;shape.sizeInferred=true;}
+  if(psWfLargeCircle(shape)){
+   shape.observedYield=25;shape.yield=25;shape.yieldKnown=true;shape.yieldSource='observed';
+   shape.yieldNote='Approximately 25 pops from one base cake (user observation)';
+  }else{
+   const provisional=psWfFallbackCount(shape);
+   if(provisional>0){shape.yield=provisional;shape.yieldKnown=false;shape.yieldSource='size-estimate';}
+   else shape.yieldSource='legacy-unverified';
+  }
+ }
+ d.settings.psWeightFirstModelVersion=1;
+ save();
+}
+psWfMigrate();
+const psWfEffectiveBefore=effectiveYield;
+effectiveYield=function(recipe,line){
+ const shape=(d.shapes||[]).find(sh=>String(sh.id)===String(line?.shape));
+ if(!shape)return psWfEffectiveBefore(recipe,line);
+ return psWfSource(shape,recipe).yield||psWfEffectiveBefore(recipe,line);
+};
+// Keep the new weight calculation visible everywhere a production recipe is opened.
+const psWfShowRecipeBefore=psShowProductionRecipe;
+psShowProductionRecipe=function(kind,planId,index){
+ psWfShowRecipeBefore(kind,planId,index);
+ const plan=d[kind]?.find(p=>String(p.id)===String(planId));
+ const line=plan?.lines?.[index];
+ const recipe=d.recipes.find(r=>String(r.id)===String(line?.flavor));
+ const shape=d.shapes.find(sh=>String(sh.id)===String(line?.shape));
+ if(!shape||!recipe)return;
+ const method=psWfSource(shape,recipe);
+ const root=$('dialogBody');if(!root)return;
+ const note=document.createElement('p');note.className='notice';
+ note.textContent=method.method==='weight'?
+  'Yield calculated from '+method.weight.source+' ('+method.weight.oz.toFixed(2)+' oz finished dough per batch) ÷ '+method.piece.source+' ('+method.piece.oz.toFixed(2)+' oz per pop).':
+  method.method==='observed'||method.method==='recorded'?'Yield based on '+(method.method==='recorded'?'completed production records':'recorded observations')+'; no finished dough weight is available for this recipe.':
+  method.method==='size'?'This yield is a provisional size-based estimate calibrated to the large circle—not a guaranteed minimum. Record a finished dough weight for a weight-based result.':
+  'The shape needs a confirmed size or weight before a weight-based estimate is available.';
+ root.prepend(note);
+};
+// The plan editor uses an optional dough weight estimator already. Add its reference
+// source to the visible estimate and make the calculated batch yield the default.
+const psWfPlanPieceBefore=psPlanEstimatedPiece;
+psPlanEstimatedPiece=function(recipe,shape){
+ if(!recipe||!shape)return null;
+ const direct=psWfEstimatedPerPop(shape,recipe);
+ return direct?.oz>0?direct:psWfPlanPieceBefore(recipe,shape);
+};
+const psWfShapeEditBefore=editShape;
+editShape=function(x=''){
+ psWfShapeEditBefore(x);
+ const form=$('dialogBody')?.querySelector('form'),yieldField=form?.elements?.yield;
+ if(!form||!yieldField)return;
+ const shape=(d.shapes||[]).find(sh=>String(sh.id)===String(x));
+ yieldField.type='hidden';
+ if(yieldField.previousElementSibling?.tagName==='LABEL')yieldField.previousElementSibling.style.display='none';
+ const panel=document.createElement('div');panel.className='card ps-wf-shape-form';
+ const heading=document.createElement('h4');heading.textContent='Yield by dough weight';
+ const info=document.createElement('p');info.className='muted small';
+ info.textContent='Choose the popper size and dough thickness. PopStock uses the Daisy Makes weight table until you measure your own piece. A known finished batch weight gives the best yield estimate.';
+ const estimate=document.createElement('p');estimate.className='notice ps-wf-forecast';
+ estimate.setAttribute('aria-live','polite');
+ const label=document.createElement('label');label.textContent='Actual pops made from one cake (optional)';
+ const manual=document.createElement('input');manual.className='ps-wf-observed';manual.type='number';manual.min='1';manual.step='1';
+ manual.placeholder='Only enter if you actually counted them';
+ manual.value=(shape?.yieldSource==='observed'?String(shape.observedYield||shape.yield||''):psWfLargeCircle(shape)?'25':'');
+ const sub=document.createElement('p');sub.className='muted small';
+ sub.textContent='Size-only estimates are provisional—not guaranteed minimums. Your earlier guessed yield stays recoverable.';
+ panel.append(heading,info,estimate,label,manual,sub);
+ form.querySelector('.actions')?.before(panel);
+ const refresh=()=>{
+  const name=form.elements.name?.value||shape?.name||'';
+  const size=form.elements.psPopSize?.value||'';
+  const raw=form.elements.doughThicknessIn?.value?.trim()||'';
+  const parsed=raw?ps6bParseInches(raw):psDefaultDepth();
+  const depth=psDepths.includes(parsed)?parsed:psDefaultDepth();
+  const current={...(shape||{}),name,popSize:size,doughThicknessIn:depth};
+  const ref=psWfReference(current,depth);
+  const provisional=psWfFallbackCount(current);
+  const actual=Number(manual.value);
+  yieldField.value=String(actual>0?actual:provisional||shape?.yield||20);
+  estimate.textContent=ref?
+   'Reference: '+ref.oz.toFixed(2)+' oz per pop at '+psDepthLabel(depth)+' inch. '+
+   (provisional>0?'First-use backup: about '+provisional+' pops per base cake. ':'')+
+   (actual>0?'Observed yield: '+actual+' pops.':'The actual dough weight determines the final estimate.'):
+   'Choose Small, Medium, Large, or Extra Large to use the Daisy Makes table, or enter an observed yield.';
+ };
+ for(const name of ['name','psPopSize','doughThicknessIn','doughWeightG']){
+  form.elements[name]?.addEventListener('input',refresh);
+  form.elements[name]?.addEventListener('change',refresh);
+ }
+ manual.addEventListener('input',refresh);
+ refresh();
+};
+const psWfShapeSaveBefore=saveShape;
+saveShape=function(e,x){
+ const form=e.target,manual=form.querySelector('.ps-wf-observed');
+ if(!manual)return psWfShapeSaveBefore(e,x);
+ const count=manual.value.trim()?Number(manual.value):null;
+ if(count!==null&&(!Number.isInteger(count)||count<1)){
+  e.preventDefault();alert('Enter a whole number of pops actually made, or leave the field blank.');return;
+ }
+ const existing=x?(d.shapes||[]).find(sh=>String(sh.id)===String(x)):null;
+ const ids=new Set((d.shapes||[]).map(sh=>sh.id));
+ const previous=Number(existing?.yield)||0;
+ const size=form.elements.psPopSize?.value||'';
+ if(!size&&count===null&&!existing){
+  e.preventDefault();alert('Choose a size or enter an observed yield for this popper.');return;
+ }
+ psWfShapeSaveBefore(e,x);
+ if($('dialog')?.open)return;
+ const sh=x?(d.shapes||[]).find(sh=>String(sh.id)===String(x)):(d.shapes||[]).find(sh=>!ids.has(sh.id));
+ if(!sh)return;
+ if(!('originalGuessedYield' in sh)&&previous>0)sh.originalGuessedYield=previous;
+ if(count!==null){
+  sh.yield=count;sh.observedYield=count;sh.yieldSource='observed';sh.yieldKnown=true;
+ }else{
+  delete sh.observedYield;
+  const fallback=psWfFallbackCount(sh);
+  if(fallback>0){sh.yield=fallback;sh.yieldSource='size-estimate';sh.yieldKnown=false;}
+  else sh.yieldSource='legacy-unverified';
+ }
+ save();render();
+};
+// Sizes unknown in local storage cannot be inferred from a shape name reliably.
+// Show a batch correction control instead of fabricating dimensions.
+const psWfShapesStockBefore=renderStock;
+renderStock=function(){
+ psWfShapesStockBefore();
+ if(!selected||!shapeCategories().some(c=>c.id===selected))return;
+ const uncertain=(d.shapes||[]).filter(sh=>!psWfSize(sh));
+ if(!uncertain.length)return;
+ const root=$('stock'),card=document.createElement('div');
+ card.className='card ps-wf-size-fixes';
+ const heading=document.createElement('h3');heading.textContent='Popper sizes to confirm ('+uncertain.length+')';
+ const p=document.createElement('p');p.className='muted small';
+ p.textContent='Choose a size to enable the Daisy Makes chart. The old guessed yield is preserved for comparison.';
+ card.append(heading,p);
+ uncertain.forEach(sh=>{
+  const row=document.createElement('div');row.className='item';
+  const label=document.createElement('label');label.textContent=sh.name;
+  const select=document.createElement('select');select.dataset.shape=sh.id;
+  select.innerHTML='<option value="">Choose size</option>'+
+   [['small','Small'],['medium','Medium'],['large','Large'],['xl','Extra Large']].map(([key,title])=>'<option value="'+key+'">'+title+'</option>').join('');
+  row.append(label,select);card.append(row);
+ });
+ const apply=document.createElement('button');apply.type='button';apply.className='alt';apply.textContent='Save selected sizes';
+ apply.addEventListener('click',()=>{
+  let n=0;
+  for(const select of card.querySelectorAll('select[data-shape]')){
+   if(!select.value)continue;
+   const sh=d.shapes.find(v=>String(v.id)===select.dataset.shape);
+   if(!sh)continue;
+   sh.popSize=select.value;sh.yield=psWfFallbackCount(sh)||sh.yield;
+   sh.yieldSource='size-estimate';sh.yieldKnown=false;n++;
+  }
+  if(!n){alert('Choose a size for at least one popper.');return}
+  save();render();
+ });
+ card.append(apply);root?.append(card);
+};
+
 try{render();psWelcomeFirstLaunch()}catch(psError){window.psShowStartupError?.(psError?.stack||psError?.message||psError);psEmergencyRecovery(psError)}if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
