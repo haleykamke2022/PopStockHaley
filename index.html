@@ -6314,4 +6314,157 @@ renderProduction=function(){
  });
 };
 
+
+/* Beginner-first weight yield interface. */
+function psSimpleSaveCustomShapeWeight(shape,value,unit){
+ const amount=Number(value),grams=amount*(unit==='oz'?28.349523125:1);
+ if(!(Number.isFinite(grams)&&grams>0))return false;
+ const old=Number(shape.doughWeightG);
+ if(old>0&&Math.abs(old-grams)<0.0001)return true;
+ shape.doughWeightG=grams;
+ d.shapeWeightHistory||=[];
+ d.shapeWeightHistory.push({id:id(),shapeId:shape.id,grams,date:new Date().toISOString(),
+  size:'custom',depth:psWfDepth(shape),source:'Measured cut dough piece during production'});
+ return true;
+}
+const psSimpleProductionBefore=renderProduction;
+renderProduction=function(){
+ psSimpleProductionBefore();
+ $('production')?.querySelectorAll('.ps6c-host').forEach(host=>{
+  const kind=host.dataset.kind,planId=host.dataset.id;
+  const plan=d[kind]?.find(p=>String(p.id)===String(planId));
+  if(!plan||host.dataset.psSimple==='yes')return;
+  host.dataset.psSimple='yes';
+  const lines=(plan.lines||[]).filter(l=>d.recipes.some(r=>r.id===l.flavor)&&d.shapes.some(sh=>sh.id===l.shape));
+  const flavor=host.querySelector('.ps6c-line');
+  const total=host.querySelector('.ps6c-weight'),units=host.querySelector('.ps6c-unit'),batches=host.querySelector('.ps6c-batches');
+  const panel=host.querySelector('.ps-yield-inline-size');
+  const size=panel?.querySelector('select[aria-label="Popper size used for yield calculation"]');
+  const one=panel?.querySelector('input[aria-label="One cut pop dough weight"]');
+  const oneUnit=panel?.querySelector('select[aria-label="Per-pop dough weight unit"]');
+  const saveShapeButton=panel?.querySelector('button');
+  const result=host.querySelector('.ps6c-result');
+  const saveButton=host.querySelector('.ps6c-save');
+  if(!flavor||!total||!units||!batches||!panel||!size||!one||!oneUnit||!result||!saveButton)return;
+  const originalHelp=host.querySelector('.ps-yield-unit-check');
+  const oldExclude=host.querySelector('.ps6c-exclude');
+  const advanced=document.createElement('details');advanced.className='ps-simple-yield-advanced';
+  advanced.style.cssText='margin:10px 0;padding:10px;border:1px solid #dfe5dc;border-radius:10px';
+  const summary=document.createElement('summary');summary.style.cursor='pointer';summary.textContent='Advanced options (optional)';
+  advanced.append(summary);
+  const batchLabel=batches.previousElementSibling;
+  if(batchLabel?.tagName==='LABEL')advanced.append(batchLabel);
+  advanced.append(batches);
+  const excludeLabel=oldExclude?.closest('label');
+  if(excludeLabel)advanced.append(excludeLabel);
+  if(originalHelp)advanced.append(originalHelp);
+  host.insertBefore(advanced,result);
+  const heading=host.closest('details')?.querySelector('summary strong');
+  if(heading)heading.textContent='Estimate My Pops';
+  const sectionDescription=host.closest('details')?.querySelector('p.muted.small');
+  if(sectionDescription&&sectionDescription.parentElement!==host) sectionDescription.textContent='Choose a flavor, enter your finished dough weight, and see an estimate. PopStock remembers your saved popper information.';
+  saveButton.textContent='Save dough weight';
+  const weightLabel=total.previousElementSibling;
+  if(weightLabel?.tagName==='LABEL')weightLabel.textContent='Finished dough weight';
+  const preview=document.createElement('div');preview.className='notice ps-simple-yield-result';
+  preview.setAttribute('aria-live','polite');
+  preview.style.cssText='padding:12px;margin:12px 0;font-size:1em';
+  result.before(preview);
+  result.style.display='none';
+  const active=()=>lines[Number(flavor.value)||0];
+  const shape=()=>d.shapes.find(sh=>String(sh.id)===String(active()?.shape));
+  const update=()=>{
+   const sh=shape(),recipe=d.recipes.find(r=>String(r.id)===String(active()?.flavor));
+   if(!sh||!recipe){preview.textContent='Choose a flavor and popper.';return}
+   const sizeSaved=String(sh.popSize||'');
+   const known=!!psWfSize(sh)||sizeSaved==='custom';
+   panel.style.display=known?'none':'block';
+   const custom=panel.querySelector('.ps-inline-custom-weight');
+   const requiresWeight=sizeSaved==='custom';
+   if(requiresWeight){
+    panel.style.display='block';
+    const selectorLabel=panel.querySelector('label');
+    if(selectorLabel)selectorLabel.style.display='none';
+    size.style.display='none';
+    panel.querySelector('p.small.muted')?.style.setProperty('display','none');
+    if(custom)custom.style.display='block';
+    if(saveShapeButton)saveShapeButton.style.display='none';
+   }else{
+    size.style.display='';
+    const selectorLabel=panel.querySelector('label');if(selectorLabel)selectorLabel.style.display='';
+    if(saveShapeButton)saveShapeButton.style.display='';
+    if(custom)custom.style.display=size.value==='custom'?'block':'none';
+   }
+   const amount=Number(total.value);
+   const valid=total.value.trim()!==''&&Number.isFinite(amount)&&amount>0;
+   const doughOz=valid?amount/(units.value==='g'?28.349523125:1):null;
+   const savedPiece=psWfEstimatedPerPop(sh,recipe);
+   const typedPiece=(size.value==='custom'||requiresWeight)&&one.value.trim()&&Number(one.value)>0?
+     Number(one.value)/(oneUnit.value==='g'?28.349523125:1):null;
+   const piece=typedPiece>0?{oz:typedPiece,source:'Weight of one cut pop (unsaved until Save dough weight)'}:savedPiece;
+   if(!valid){
+    preview.textContent='Enter the finished dough weight to see how many pops you can make.';
+   }else if(!(piece?.oz>0)){
+    preview.textContent='Your '+sh.name+' popper is custom. Weigh one undipped dough piece above to calculate its yield.';
+   }else{
+    const estimate=Math.floor(doughOz/piece.oz);
+    preview.textContent='Estimated yield: '+estimate+' pops. Based on '+doughOz.toFixed(2)+' oz of finished dough and '+piece.oz.toFixed(2)+' oz per pop ('+piece.source+'). This is an estimate, not a guarantee.';
+   }
+  };
+  ['input','change'].forEach(type=>{
+   host.addEventListener(type,()=>update());
+  });
+  saveButton.addEventListener('click',()=>{
+   const sh=shape();
+   if(!sh)return;
+   const v=size.value;
+   if(!psWfSize(sh)&&v&&v!=='custom'){
+    const old=Number(sh.yield);
+    if(!('originalGuessedYield' in sh)&&old>0)sh.originalGuessedYield=old;
+    sh.popSize=v;
+    if(sh.yieldSource!=='observed'){
+     const estimate=psWfFallbackCount(sh);
+     if(estimate>0){sh.yield=estimate;sh.yieldSource='size-estimate';sh.yieldKnown=false}
+    }
+   }else if(v==='custom'&&sh.popSize!=='custom'){
+    sh.popSize='custom';
+   }
+   if(sh.popSize==='custom'&&one.value.trim()){
+    psSimpleSaveCustomShapeWeight(sh,one.value,oneUnit.value);
+   }
+   save();
+  });
+  // Keep the selected size hidden once it's configured, but preserve the
+  // ability to change it in My Shapes. No changes to existing orders or stock.
+  update();
+ });
+};
+const psSimpleShapeBefore=editShape;
+editShape=function(x=''){
+ psSimpleShapeBefore(x);
+ const form=$('dialogBody')?.querySelector('form');
+ if(!form||!form.elements.psPopSize)return;
+ const advanced=document.createElement('details');advanced.className='card ps-simple-shape-advanced';
+ advanced.style.marginTop='10px';
+ const summary=document.createElement('summary');summary.textContent='Advanced measurements (optional)';
+ advanced.append(summary);
+ const measured=form.elements.doughWeightG;
+ const existingDetails=measured?.closest('details');
+ if(existingDetails&&existingDetails!==advanced){
+  const row=measured.parentElement;
+  if(row)advanced.append(row);
+ }
+ const panel=form.querySelector('.ps-wf-shape-form');
+ if(panel)advanced.append(panel);
+ const reference=[...form.querySelectorAll('section.card')].find(el=>el.querySelector('#ps6bWeightInfo'));
+ if(reference)advanced.append(reference);
+ const oldExtra=form.querySelector('details.card');
+ if(oldExtra&&oldExtra!==advanced&&oldExtra.querySelector('[name="cutterWidthIn"]'))advanced.append(oldExtra);
+ form.querySelector('.actions')?.before(advanced);
+ const size=form.elements.psPopSize;
+ const notice=document.createElement('p');notice.className='muted small';
+ notice.textContent='Standard Daisy Makes sizes use the reference chart automatically. Custom shapes can use a measured piece weight under Advanced.';
+ size.after(notice);
+};
+
 try{render();psWelcomeFirstLaunch()}catch(psError){window.psShowStartupError?.(psError?.stack||psError?.message||psError);psEmergencyRecovery(psError)}if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
