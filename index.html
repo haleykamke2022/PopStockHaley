@@ -5654,4 +5654,222 @@ savePlan=function(e,kind,x){
  return result;
 };
 
+
+/* Persistent popper weight library and measurement backlog. */
+d.shapeWeightHistory ||= [];
+function psWeightDepth(shape){
+ const n=Number(shape?.doughThicknessIn);
+ return psDepths.includes(n)?n:psDefaultDepth();
+}
+function psHistoricalPieceReadings(shapeId,recipeId){
+ return (d.doughHistory||[]).filter(h=>
+  String(h.shapeId)===String(shapeId)&&!h.exclude&&
+  (!recipeId||String(h.recipeId)===String(recipeId))&&
+  Number(h.weightOz)>0&&Number(h.finishedPops)>0
+ ).map(h=>({
+  grams:Number(h.weightOz)*ps6bGramsPerOz/Number(h.finishedPops),
+  date:h.date||'',
+  source:'Actual production · '+(d.recipes.find(r=>String(r.id)===String(h.recipeId))?.name||'Saved recipe'),
+  count:Number(h.finishedPops),
+  type:'production',
+  planKind:h.planKind,
+  planId:h.planId
+ })).filter(v=>Number.isFinite(v.grams)&&v.grams>0);
+}
+function psShapeWeightBacklog(shapeId){
+ const manual=(d.shapeWeightHistory||[]).filter(h=>String(h.shapeId)===String(shapeId)&&Number(h.grams)>0).map(h=>({
+  grams:Number(h.grams),date:h.date||'',source:h.source||'Shape measurement',type:'measured'
+ }));
+ return manual.concat(psHistoricalPieceReadings(shapeId)).sort((a,b)=>String(b.date).localeCompare(String(a.date)));
+}
+function psShapeLearnedWeight(shapeId,recipeId){
+ const entries=psHistoricalPieceReadings(shapeId,recipeId);
+ if(!entries.length)return null;
+ const totalCount=entries.reduce((sum,e)=>sum+e.count,0);
+ const weighted=entries.reduce((sum,e)=>sum+e.grams*e.count,0);
+ return totalCount>0?{grams:weighted/totalCount,source:'Recorded actual production ('+entries.length+' batch'+(entries.length===1?'':'es')+')',type:'measured'}:null;
+}
+function psSizeWeightEstimate(size,depth,excludeId){
+ const key=String(size||'').toLowerCase();
+ if(!psWeights[key])return null;
+ // Use the current measurement from each matching saved shape, not stale edits.
+ const measured=(d.shapes||[]).filter(sh=>String(sh.popSize||'')===key&&String(sh.id)!==String(excludeId||'')&&psWeightDepth(sh)===Number(depth)).map(sh=>{
+  const direct=Number(sh.doughWeightG);
+  return direct>0?direct:(psShapeLearnedWeight(sh.id)?.grams||null);
+ }).filter(g=>Number.isFinite(g)&&g>0);
+ if(measured.length){
+  return {grams:measured.reduce((a,b)=>a+b,0)/measured.length,
+   source:'Average from '+measured.length+' measured '+(key==='xl'?'extra-large':key)+' shape'+(measured.length===1?'':'s')+' at this thickness',
+   type:'size-average',count:measured.length};
+ }
+ const ref=ps6bReference(key,depth);
+ return ref>0?{grams:ref*ps6bGramsPerOz,source:'Built-in '+(key==='xl'?'extra-large':key)+' reference at '+psDepthLabel(depth)+' inch (approximate)',type:'reference',count:0}:null;
+}
+function psShapeWeightEstimate(shapeId,depth,recipeId){
+ const shape=(d.shapes||[]).find(sh=>String(sh.id)===String(shapeId));
+ if(!shape)return null;
+ const measured=Number(shape.doughWeightG);
+ if(measured>0)return {oz:measured/ps6bGramsPerOz,grams:measured,source:'Your saved measurement for '+shape.name,type:'measured'};
+ // Actual weights captured during completed production remain usable for that shape.
+ const exact=psShapeLearnedWeight(shapeId,recipeId)||psShapeLearnedWeight(shapeId);
+ if(exact)return {oz:exact.grams/ps6bGramsPerOz,grams:exact.grams,source:exact.source,type:exact.type};
+ const bySize=psSizeWeightEstimate(shape.popSize,depth,shapeId);
+ return bySize?{oz:bySize.grams/ps6bGramsPerOz,grams:bySize.grams,source:bySize.source,type:bySize.type}:null;
+}
+ps6cPieceWeight=function(shapeId,depth){
+ return psShapeWeightEstimate(shapeId,depth);
+};
+function psWeightFormat(g){
+ return (Number(g)/ps6bGramsPerOz).toFixed(2)+' oz / '+Number(g).toFixed(1)+' g';
+}
+function psShapeWeightReferenceCard(){
+ const card=document.createElement('div');card.className='card ps-shape-weight-library';
+ const title=document.createElement('h3');title.textContent='Popper Weight Library';
+ const desc=document.createElement('p');desc.className='muted small';
+ desc.textContent='Small, medium, large and extra-large weights are approximate planning references at your default rolled thickness. Your measured weights and completed production history take priority. Different cutters of the same size can weigh differently.';
+ card.append(title,desc);
+ const depth=psDefaultDepth();
+ const refTitle=document.createElement('strong');refTitle.textContent='Size reference at '+psDepthLabel(depth)+' inch dough thickness';
+ card.append(refTitle);
+ for(const [key,label] of [['small','Small'],['medium','Medium'],['large','Large'],['xl','Extra Large']]){
+  const baseline=ps6bReference(key,depth);
+  const row=document.createElement('div');row.className='item row';
+  const name=document.createElement('strong');name.textContent=label;
+  const weight=document.createElement('span');weight.className='small muted';
+  weight.textContent=baseline>0?psWeightFormat(baseline*ps6bGramsPerOz)+' · reference':'No reference for this thickness';
+  row.append(name,weight);card.append(row);
+ }
+ const individual=document.createElement('h4');individual.textContent='Your saved shapes';individual.style.marginTop='16px';card.append(individual);
+ if(!d.shapes?.length){
+  const empty=document.createElement('p');empty.className='small muted';empty.textContent='Add a shape to start its weight history.';card.append(empty);
+ }else{
+  alpha(d.shapes).forEach(sh=>{
+   const row=document.createElement('div');row.className='item';
+   const header=document.createElement('div');header.className='row wrap';
+   const name=document.createElement('strong');name.textContent=sh.name;
+   const button=document.createElement('button');button.type='button';button.className='alt';
+   button.textContent='Edit / view history';button.addEventListener('click',()=>editShape(sh.id));
+   header.append(name,button);row.append(header);
+   const detail=document.createElement('p');detail.className='small muted';
+   const result=psShapeWeightEstimate(sh.id,psWeightDepth(sh));
+   const size=({small:'Small',medium:'Medium',large:'Large',xl:'Extra Large'})[sh.popSize]||'Size not selected';
+   detail.textContent=size+' · '+(result?psWeightFormat(result.grams)+' · '+result.source:'No weight estimate — choose size or record weight')+' · '+psShapeWeightBacklog(sh.id).length+' recorded measurement(s)';
+   row.append(detail);card.append(row);
+  });
+ }
+ return card;
+}
+const psShapeWeightStockBefore=renderStock;
+renderStock=function(){
+ psShapeWeightStockBefore();
+ if(!selected||!shapeCategories().some(c=>c.id===selected))return;
+ const root=$('stock');if(root&&!root.querySelector('.ps-shape-weight-library'))root.append(psShapeWeightReferenceCard());
+};
+const psShapeWeightEditBefore=editShape;
+editShape=function(x=''){
+ psShapeWeightEditBefore(x);
+ const form=$('dialogBody')?.querySelector('form');
+ if(!form||!form.elements.psPopSize)return;
+ const shape=(d.shapes||[]).find(sh=>String(sh.id)===String(x));
+ const panel=document.createElement('section');panel.className='card ps-weight-library-edit';
+ const heading=document.createElement('h4');heading.textContent='Weight for this popper shape';
+ const description=document.createElement('p');description.className='muted small';
+ description.textContent='Choose Small, Medium, Large or Extra Large above. PopStock will use a size reference until you enter an actual dough weight for one cut pop. All subsequent measured changes are kept in this shape’s history.';
+ panel.append(heading,description);
+ // Move existing single-piece measurement into the visible main section.
+ const input=form.elements.doughWeightG;
+ const group=input?.parentElement;
+ if(input&&group&&group!==form){
+  const measuredLabel=group.querySelector('label');
+  if(measuredLabel)measuredLabel.textContent='Your measured dough weight per pop (grams) — optional';
+  panel.append(group);
+ }
+ const current=document.createElement('div');current.className='notice ps-weight-library-summary';
+ current.setAttribute('aria-live','polite');panel.append(current);
+ const category=document.createElement('p');category.className='muted small';panel.append(category);
+ const records=document.createElement('details');records.className='ps-weight-library-records';
+ const summary=document.createElement('summary');summary.textContent='Weight measurement history'+(shape?' ('+psShapeWeightBacklog(shape.id).length+')':' (new shape)');
+ records.append(summary);
+ const backlog=shape?psShapeWeightBacklog(shape.id):[];
+ if(backlog.length){
+  backlog.slice(0,25).forEach(entry=>{
+   const line=document.createElement('div');line.className='item';
+   const date=entry.date?new Date(entry.date).toLocaleDateString():'Previously recorded';
+   line.textContent=psWeightFormat(entry.grams)+' · '+entry.source+' · '+date;records.append(line);
+  });
+  if(backlog.length>25){
+   const more=document.createElement('p');more.className='muted small';more.textContent='Showing the 25 most recent of '+backlog.length+' measurements.';records.append(more);
+  }
+ }else{
+  const empty=document.createElement('p');empty.className='muted small';
+  empty.textContent='No measured weights yet. The size reference can still be used for estimates.';records.append(empty);
+ }
+ panel.append(records);
+ form.querySelector('.actions')?.before(panel);
+ const display=()=>{
+  const size=form.elements.psPopSize.value;
+  const raw=form.elements.doughThicknessIn?.value?.trim()||'';
+  const parsed=raw?ps6bParseInches(raw):psDefaultDepth();
+  const depth=psDepths.includes(parsed)?parsed:psDefaultDepth();
+  const direct=Number(input?.value);
+  const saved=shape?psShapeWeightEstimate(shape.id,depth):null;
+  const baseline=psSizeWeightEstimate(size,depth,shape?.id);
+  current.textContent=direct>0&&Number.isFinite(direct)?
+   'Your measured weight: '+psWeightFormat(direct)+' per pop. Saving will record a measurement if this value is new.':
+   saved&&saved.type!=='measured'?'Current estimate: '+psWeightFormat(saved.grams)+' — '+saved.source:
+   saved&&saved.type==='measured'?'Recorded production estimate: '+psWeightFormat(saved.grams)+' — '+saved.source:
+   baseline?'Planning reference: '+psWeightFormat(baseline.grams)+' — '+baseline.source:
+   'Select a popper size or weigh one dough piece to establish a weight estimate.';
+  category.textContent=baseline?'Size reference: '+psWeightFormat(baseline.grams)+' · '+baseline.source:'No size reference selected. Special cutters can use your own measured piece weight.';
+ };
+ ['psPopSize','doughThicknessIn','doughWeightG'].forEach(key=>{
+  form.elements[key]?.addEventListener('input',display);
+  form.elements[key]?.addEventListener('change',display);
+ });
+ display();
+};
+const psShapeWeightSaveBefore=saveShape;
+saveShape=function(e,x){
+ const existing=(d.shapes||[]).find(sh=>String(sh.id)===String(x));
+ const priorId=existing?.id||'';
+ const priorWeight=Number(existing?.doughWeightG)||0;
+ const entered=Number(e.target?.elements?.doughWeightG?.value);
+ const name=e.target?.elements?.name?.value?.trim()||'';
+ psShapeWeightSaveBefore(e,x);
+ // A validation failure leaves the original dialog open; never create a log for it.
+ if($('dialog')?.open)return;
+ const current=x?(d.shapes||[]).find(sh=>String(sh.id)===String(x)):(d.shapes||[]).find(sh=>sh.name===name&&!priorId)||d.shapes[d.shapes.length-1];
+ if(!current)return;
+ const hasPast=(d.shapeWeightHistory||[]).some(h=>String(h.shapeId)===String(current.id));
+ if(entered>0&&Number.isFinite(entered)&&(Math.abs(priorWeight-entered)>0.0001||!hasPast)){
+  d.shapeWeightHistory.push({id:id(),shapeId:current.id,grams:entered,date:new Date().toISOString(),size:current.popSize||'',depth:psWeightDepth(current),
+   source:priorWeight>0?'Updated shape measurement':'Measured shape weight'});
+  save();render();
+ }
+};
+// If the calculator does not yet have a measured/reference weight for a custom shape,
+// explain precisely what is missing; saving prep weight remains available.
+const psShapeWeightProductionBefore=renderProduction;
+renderProduction=function(){
+ psShapeWeightProductionBefore();
+ $('production')?.querySelectorAll('.ps6c-host').forEach(host=>{
+  const lineSelect=host.querySelector('.ps6c-line');
+  const result=host.querySelector('.ps6c-result');
+  if(!lineSelect||!result)return;
+  const plan=d[host.dataset.kind]?.find(p=>String(p.id)===String(host.dataset.id));
+  const lines=(plan?.lines||[]).filter(l=>d.recipes.some(r=>r.id===l.flavor)&&d.shapes.some(sh=>sh.id===l.shape));
+  const explain=()=>{
+   const line=lines[Number(lineSelect.value)||0];
+   const recipe=d.recipes.find(r=>r.id===line?.flavor);
+   const shape=d.shapes.find(sh=>sh.id===line?.shape);
+   if(!recipe||!shape)return;
+   const depth=Number(recipe.doughDepthOverride)||psDefaultDepth();
+   if(ps6cPieceWeight(shape.id,depth))return;
+   result.textContent='No per-pop weight recorded for '+shape.name+'. You can save this first finished dough weight now. To estimate pops, edit this popper under My Shapes and select its size or enter a measured weight for one cut pop. Later finished-pop counts will improve your estimates.';
+  };
+  ['input','change'].forEach(event=>host.addEventListener(event,explain));
+  explain();
+ });
+};
+
 try{render();psWelcomeFirstLaunch()}catch(psError){window.psShowStartupError?.(psError?.stack||psError?.message||psError);psEmergencyRecovery(psError)}if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
