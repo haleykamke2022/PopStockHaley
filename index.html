@@ -5872,4 +5872,15 @@ renderProduction=function(){
  });
 };
 
+
+/* Preserve a directly weighed shape piece as the highest-priority planning measurement. */
+const psShapeMeasuredPlanningBefore=psPlanEstimatedPiece;
+psPlanEstimatedPiece=function(recipe,shape){
+ const measured=Number(shape?.doughWeightG);
+ if(measured>0&&Number.isFinite(measured)){
+  return {oz:measured/ps6bGramsPerOz,source:'Your measured pop weight for '+(shape.name||'this shape')};
+ }
+ return psShapeMeasuredPlanningBefore(recipe,shape);
+};
+
 try{render();psWelcomeFirstLaunch()}catch(psError){window.psShowStartupError?.(psError?.stack||psError?.message||psError);psEmergencyRecovery(psError)}if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
