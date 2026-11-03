@@ -2736,7 +2736,7 @@ editShape=function(x=''){
  const form=$('dialogBody')?.querySelector('form');if(!form)return;
  const sh=d.shapes.find(v=>v.id===x)||{};
  const box=document.createElement('div');
- box.innerHTML='<h4>Popper size and weight reference</h4><label>Popper size</label><select name="psPopSize"><option value="">Custom / not specified</option>'+[['small','Small'],['medium','Medium'],['large','Large'],['xl','Extra Large']].map(([v,label])=>'<option value="'+v+'" '+(sh.popSize===v?'selected':'')+'>'+label+'</option>').join('')+'</select><p class="muted small">Approximate piece weights help estimate yields after dough weight is recorded for a specific flavor.</p><div id="psEstimateShape" class="notice"></div>';
+ box.innerHTML='<h4>Popper size and weight reference</h4><label>Popper size</label><select name="psPopSize"><option value="">Choose a size</option><option value="custom" '+(sh.popSize==='custom'?'selected':'')+'>Custom / specialty size</option>'+[['small','Small'],['medium','Medium'],['large','Large'],['xl','Extra Large']].map(([v,label])=>'<option value="'+v+'" '+(sh.popSize===v?'selected':'')+'>'+label+'</option>').join('')+'</select><p class="muted small">Approximate piece weights help estimate yields after dough weight is recorded for a specific flavor.</p><div id="psEstimateShape" class="notice"></div>';
  form.querySelector('.actions')?.insertAdjacentElement('beforebegin',box);
  const refresh=()=>{
   const depthText=form.elements.doughThicknessIn?.value;
@@ -6180,7 +6180,7 @@ renderProduction=function(){
   label.textContent='Saved popper size';
   const select=document.createElement('select');
   select.setAttribute('aria-label','Popper size used for yield calculation');
-  select.innerHTML='<option value="">Choose a size for this shape</option>'+
+  select.innerHTML='<option value="">Choose a size for this shape</option><option value="custom">Custom / specialty size</option>'+
     [['small','Small'],['medium','Medium'],['large','Large'],['xl','Extra Large']].map(([value,name])=>'<option value="'+value+'">'+name+'</option>').join('');
   const reference=document.createElement('p');
   reference.className='small muted';
@@ -6190,7 +6190,16 @@ renderProduction=function(){
   saveSize.textContent='Save popper size to My Shapes';
   const help=document.createElement('p');help.className='muted small';
   help.textContent='This size is saved to the shape itself and reused for every order or event that uses it.';
-  panel.append(label,select,reference,saveSize,help);
+  const custom=document.createElement('div');custom.className='ps-inline-custom-weight';custom.style.margin='12px 0';
+  const customLabel=document.createElement('label');customLabel.textContent='Measured dough weight of ONE cut pop (optional)';
+  const customInput=document.createElement('input');customInput.type='number';customInput.min='0.01';customInput.step='any';customInput.inputMode='decimal';customInput.placeholder='Enter after weighing one cut pop';
+  customInput.setAttribute('aria-label','One cut pop dough weight');
+  const customUnit=document.createElement('select');customUnit.setAttribute('aria-label','Per-pop dough weight unit');
+  customUnit.innerHTML='<option value="g">grams</option><option value="oz">ounces</option>';
+  const customHelp=document.createElement('p');customHelp.className='muted small';
+  customHelp.textContent='Use the weight of the undipped dough piece, not the full batch. Leave blank until measured. This is required for an exact custom-shape calculation when no previous weight is saved.';
+  custom.append(customLabel,customInput,customUnit,customHelp);
+  panel.append(label,select,reference,custom,saveSize,help);
   chosen.after(panel);
   const sanity=document.createElement('div');sanity.className='ps-yield-unit-check';
   sanity.style.marginTop='8px';
@@ -6205,8 +6214,10 @@ renderProduction=function(){
   const selectedShape=()=>d.shapes.find(sh=>String(sh.id)===String(active()?.shape));
   const updateSize=()=>{
     const shape=selectedShape();
-    const selected=psWfSize(shape);
+    const selected=shape?.popSize==='custom'?'custom':psWfSize(shape);
     select.value=selected||'';
+    customInput.value=Number(shape?.doughWeightG)>0?String(shape.doughWeightG):'';
+    customUnit.value='g';
     const name=shape?.name||'this shape';
     label.textContent='Popper size for '+name;
     reference.textContent=selected?'Saved as '+({small:'Small',medium:'Medium',large:'Large',xl:'Extra Large'})[selected]+'.':'No size saved for this shape yet.';
@@ -6219,10 +6230,19 @@ renderProduction=function(){
     const depth=Number(recipe?.doughDepthOverride)||psWfDepth(shape);
     const ref=select.value?ps6bReference(select.value,depth):null;
     const sizeName=({small:'Small',medium:'Medium',large:'Large',xl:'Extra Large'})[select.value]||'';
-    reference.textContent=ref>0?
+    custom.style.display=select.value==='custom'?'block':'none';
+    const measured=Number(shape.doughWeightG);
+    reference.textContent=select.value==='custom'?
+      (measured>0?'Custom shape: saved weight '+(measured/28.349523125).toFixed(2)+' oz / '+measured.toFixed(1)+' g per pop.':'Custom shape: no Daisy Makes size reference applies. Weigh one undipped dough piece for a reliable calculation.') :
+      ref>0?
       sizeName+' reference at '+psDepthLabel(depth)+' inch: '+ref.toFixed(2)+' oz per cut pop. '+(select.value!==psWfSize(shape)?'Save this size to use it in calculations.':'Used automatically for this shape.'):
-      'Choose a size to use the Daisy Makes reference at the saved thickness, or save a measured per-pop weight in My Shapes.';
-    saveSize.disabled=!select.value||select.value===psWfSize(shape);
+      'Choose a size or Custom. A custom popper needs its own measured per-pop weight.';
+    const changed=select.value!==(shape.popSize||'');
+    const typed=customInput.value.trim();
+    const changedWeight=select.value==='custom'&&typed!==''&&
+      Math.abs(Number(typed)*(customUnit.value==='oz'?28.349523125:1)-(Number(shape.doughWeightG)||0))>0.0001;
+    saveSize.textContent=select.value==='custom'?'Save custom shape measurements':'Save popper size to My Shapes';
+    saveSize.disabled=!select.value||(!changed&&!changedWeight);
   };
   const updateUnits=()=>{
     const raw=weight.value.trim(),n=Number(raw),b=Number(batches.value);
@@ -6239,6 +6259,7 @@ renderProduction=function(){
   };
   chosen.addEventListener('change',()=>{updateSize();updateUnits()});
   select.addEventListener('change',updatePreview);
+  [customInput,customUnit].forEach(input=>{input.addEventListener('input',updatePreview);input.addEventListener('change',updatePreview)});
   [weight,unit,batches].forEach(input=>{
     input.addEventListener('input',updateUnits);
     input.addEventListener('change',updateUnits);
@@ -6253,11 +6274,25 @@ renderProduction=function(){
   saveSize.addEventListener('click',()=>{
     const shape=selectedShape(),line=active();
     if(!shape||!line||!select.value)return;
+    const rawCustom=customInput.value.trim();
+    const grams=rawCustom?Number(rawCustom)*(customUnit.value==='oz'?28.349523125:1):null;
+    if(select.value==='custom'&&rawCustom&&!(grams>0&&Number.isFinite(grams))){
+      alert('Enter a positive weight for one cut pop, or leave the field blank until you measure it.');return;
+    }
     const old=Number(shape.yield)||0;
     if(!('originalGuessedYield' in shape)&&old>0)shape.originalGuessedYield=old;
     shape.popSize=select.value;
     shape.sizeInferred=false;
-    if(shape.yieldSource!=='observed'){
+    if(select.value==='custom'&&grams>0&&Number.isFinite(grams)){
+      const previous=Number(shape.doughWeightG);
+      if(!(previous>0)||Math.abs(previous-grams)>0.0001){
+        shape.doughWeightG=grams;
+        d.shapeWeightHistory ||= [];
+        d.shapeWeightHistory.push({id:id(),shapeId:shape.id,grams,date:new Date().toISOString(),
+          size:'custom',depth:psWfDepth(shape),source:'Measured custom-pop dough weight from Production'});
+      }
+    }
+    if(shape.yieldSource!=='observed'&&select.value!=='custom'){
       const provisional=psWfFallbackCount(shape);
       if(provisional>0){
         shape.yield=provisional;
