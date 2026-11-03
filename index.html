@@ -6156,4 +6156,127 @@ renderSettings=function(){
  });
 };
 
+
+/* Inline popper-size correction and dough-unit sanity check. */
+const psYieldInlineSizeRenderBefore=renderProduction;
+renderProduction=function(){
+ psYieldInlineSizeRenderBefore();
+ const root=$('production');if(!root)return;
+ root.querySelectorAll('.ps6c-host').forEach(host=>{
+  const kind=host.dataset.kind,planId=host.dataset.id;
+  const plan=d[kind]?.find(p=>String(p.id)===String(planId));
+  if(!plan)return;
+  const choices=(plan.lines||[]).filter(l=>d.recipes.some(r=>r.id===l.flavor)&&d.shapes.some(sh=>sh.id===l.shape));
+  const chosen=host.querySelector('.ps6c-line');
+  const weight=host.querySelector('.ps6c-weight');
+  const unit=host.querySelector('.ps6c-unit');
+  const batches=host.querySelector('.ps6c-batches');
+  if(!chosen||!weight||!unit||!batches)return;
+  if(host.querySelector('.ps-yield-inline-size'))return;
+  const panel=document.createElement('div');
+  panel.className='ps-yield-inline-size';
+  panel.style.cssText='margin:12px 0;padding:12px;border:1px solid #d8e1d5;border-radius:12px';
+  const label=document.createElement('label');
+  label.textContent='Saved popper size';
+  const select=document.createElement('select');
+  select.setAttribute('aria-label','Popper size used for yield calculation');
+  select.innerHTML='<option value="">Choose a size for this shape</option>'+
+    [['small','Small'],['medium','Medium'],['large','Large'],['xl','Extra Large']].map(([value,name])=>'<option value="'+value+'">'+name+'</option>').join('');
+  const reference=document.createElement('p');
+  reference.className='small muted';
+  reference.setAttribute('aria-live','polite');
+  const saveSize=document.createElement('button');
+  saveSize.type='button';saveSize.className='alt';
+  saveSize.textContent='Save popper size to My Shapes';
+  const help=document.createElement('p');help.className='muted small';
+  help.textContent='This size is saved to the shape itself and reused for every order or event that uses it.';
+  panel.append(label,select,reference,saveSize,help);
+  chosen.after(panel);
+  const sanity=document.createElement('div');sanity.className='ps-yield-unit-check';
+  sanity.style.marginTop='8px';
+  const warning=document.createElement('p');warning.className='muted small';
+  warning.setAttribute('aria-live','polite');
+  const fixUnit=document.createElement('button');fixUnit.type='button';
+  fixUnit.className='alt';fixUnit.textContent='My number is in ounces';
+  fixUnit.style.display='none';
+  sanity.append(warning,fixUnit);
+  batches.after(sanity);
+  const active=()=>choices[Number(chosen.value)||0];
+  const selectedShape=()=>d.shapes.find(sh=>String(sh.id)===String(active()?.shape));
+  const updateSize=()=>{
+    const shape=selectedShape();
+    const selected=psWfSize(shape);
+    select.value=selected||'';
+    const name=shape?.name||'this shape';
+    label.textContent='Popper size for '+name;
+    reference.textContent=selected?'Saved as '+({small:'Small',medium:'Medium',large:'Large',xl:'Extra Large'})[selected]+'.':'No size saved for this shape yet.';
+    updatePreview();
+  };
+  const updatePreview=()=>{
+    const recipe=d.recipes.find(r=>String(r.id)===String(active()?.flavor));
+    const shape=selectedShape();
+    if(!shape)return;
+    const depth=Number(recipe?.doughDepthOverride)||psWfDepth(shape);
+    const ref=select.value?ps6bReference(select.value,depth):null;
+    const sizeName=({small:'Small',medium:'Medium',large:'Large',xl:'Extra Large'})[select.value]||'';
+    reference.textContent=ref>0?
+      sizeName+' reference at '+psDepthLabel(depth)+' inch: '+ref.toFixed(2)+' oz per cut pop. '+(select.value!==psWfSize(shape)?'Save this size to use it in calculations.':'Used automatically for this shape.'):
+      'Choose a size to use the Daisy Makes reference at the saved thickness, or save a measured per-pop weight in My Shapes.';
+    saveSize.disabled=!select.value||select.value===psWfSize(shape);
+  };
+  const updateUnits=()=>{
+    const raw=weight.value.trim(),n=Number(raw),b=Number(batches.value);
+    fixUnit.style.display='none';
+    if(!raw||!(n>0)||!Number.isFinite(n)){warning.textContent='Confirm the unit matches what your scale displayed.';return}
+    const inOz=unit.value==='g'?n/28.349523125:n;
+    const other=unit.value==='g'?inOz.toFixed(2)+' oz':(n*28.349523125).toFixed(1)+' g';
+    if(unit.value==='g'&&b>0&&n/b<140){
+      warning.textContent=n+' grams = '+other+' total. This looks unusually low for '+b+' cake recipe batch(es). If your scale displayed ounces, use the button below before saving.';
+      fixUnit.style.display='inline-block';
+    }else{
+      warning.textContent=n+' '+(unit.value==='g'?'g':'oz')+' = '+other+'. Confirm that this matches the scale reading.';
+    }
+  };
+  chosen.addEventListener('change',()=>{updateSize();updateUnits()});
+  select.addEventListener('change',updatePreview);
+  [weight,unit,batches].forEach(input=>{
+    input.addEventListener('input',updateUnits);
+    input.addEventListener('change',updateUnits);
+  });
+  fixUnit.addEventListener('click',()=>{
+    // Reinterpret the number as ounces, rather than converting its numeric value.
+    unit.value='oz';
+    unit.dispatchEvent(new Event('input',{bubbles:true}));
+    unit.dispatchEvent(new Event('change',{bubbles:true}));
+    updateUnits();
+  });
+  saveSize.addEventListener('click',()=>{
+    const shape=selectedShape(),line=active();
+    if(!shape||!line||!select.value)return;
+    const old=Number(shape.yield)||0;
+    if(!('originalGuessedYield' in shape)&&old>0)shape.originalGuessedYield=old;
+    shape.popSize=select.value;
+    shape.sizeInferred=false;
+    if(shape.yieldSource!=='observed'){
+      const provisional=psWfFallbackCount(shape);
+      if(provisional>0){
+        shape.yield=provisional;
+        shape.yieldSource='size-estimate';
+        shape.yieldKnown=false;
+      }
+    }
+    // Preserve the current preparation input when re-rendering Production.
+    const raw=weight.value.trim(),w=Number(raw),b=Number(batches.value);
+    if(raw&&Number.isFinite(w)&&w>0&&Number.isFinite(b)&&b>0){
+      d.productionDoughDrafts ||= {};
+      d.productionDoughDrafts[ps6cDraftKey(kind,planId,line)]={
+        weight:w,unit:unit.value,batches:b,date:new Date().toISOString()
+      };
+    }
+    save();render();
+  });
+  updateSize();updateUnits();
+ });
+};
+
 try{render();psWelcomeFirstLaunch()}catch(psError){window.psShowStartupError?.(psError?.stack||psError?.message||psError);psEmergencyRecovery(psError)}if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
