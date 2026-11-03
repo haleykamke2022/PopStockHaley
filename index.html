@@ -6108,4 +6108,52 @@ renderStock=function(){
  card.append(apply);root?.append(card);
 };
 
+
+/* Show estimates explicitly instead of implying each popper's planning yield is measured. */
+function psWfYieldLabel(sh){
+ const status=sh.yieldSource==='observed'?'observed':sh.yieldSource==='size-estimate'?'size estimate':'unverified older value';
+ return Number(sh.yield)>0?sh.yield+' pops per base cake · '+status:'Yield unavailable';
+}
+const psWfShapeListRenderBefore=renderStock;
+renderStock=function(){
+ psWfShapeListRenderBefore();
+ const root=$('stock');
+ if(!root||!selected||!shapeCategories().some(c=>c.id===selected))return;
+ root.querySelectorAll('.item').forEach(row=>{
+  const button=[...row.querySelectorAll('button')].find(b=>String(b.getAttribute('onclick')||'').startsWith("editShape('"));
+  if(!button)return;
+  const match=String(button.getAttribute('onclick')).match(/editShape\('([^']+)'\)/);
+  const sh=match&&(d.shapes||[]).find(v=>String(v.id)===match[1]);
+  if(!sh)return;
+  const small=row.querySelector('.small.muted');
+  if(small&&/(pops per cake mix|pops per|Set yield)/i.test(small.textContent))small.textContent=psWfYieldLabel(sh);
+ });
+};
+const psWfAddLineLabelsBefore=addLine;
+addLine=function(line={}){
+ psWfAddLineLabelsBefore(line);
+ const row=$('planlines')?.lastElementChild,selector=row?.querySelector('.shape');
+ if(!selector)return;
+ [...selector.options].forEach(option=>{
+  const sh=(d.shapes||[]).find(v=>String(v.id)===option.value);
+  if(sh)option.textContent=sh.name+' — '+psWfYieldLabel(sh);
+ });
+};
+const psWfSettingsLabelsBefore=renderSettings;
+renderSettings=function(){
+ psWfSettingsLabelsBefore();
+ const root=$('settings');if(!root)return;
+ [...root.querySelectorAll('h3')].filter(h=>h.textContent.trim()==='Popper shapes and yields').forEach(h=>{
+  const card=h.closest('.card');if(!card)return;
+  card.querySelectorAll('.item.row').forEach(row=>{
+   const button=[...row.querySelectorAll('button')].find(b=>String(b.getAttribute('onclick')||'').startsWith("editShape('"));
+   const match=button?.getAttribute('onclick')?.match(/editShape\('([^']+)'\)/);
+   const sh=match&&(d.shapes||[]).find(v=>String(v.id)===match[1]);
+   const text=row.querySelector('span');if(sh&&text)text.textContent=sh.name+' — '+psWfYieldLabel(sh);
+  });
+  const desc=h.nextElementSibling;
+  if(desc?.tagName==='P')desc.textContent='A recipe’s finished dough weight and the Daisy Makes size/depth reference determine estimated pops. Size-only yields below are provisional backups; actual pop counts are labeled observed.';
+ });
+};
+
 try{render();psWelcomeFirstLaunch()}catch(psError){window.psShowStartupError?.(psError?.stack||psError?.message||psError);psEmergencyRecovery(psError)}if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
