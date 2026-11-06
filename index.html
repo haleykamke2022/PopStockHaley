@@ -6858,4 +6858,81 @@ renderHome=function(){
  psCalendarDraw();
 };
 
+
+/* Per-user calendar highlight colors. */
+const psCalendarDefaultColors={orders:'#92765f',events:'#557d70'};
+function psCalendarSafeColor(value,fallback){
+ return typeof value==='string'&&/^#[0-9a-fA-F]{6}$/.test(value)?value:fallback;
+}
+function psCalendarColors(){
+ const settings=d.settings?.calendarColors||{};
+ return {
+  orders:psCalendarSafeColor(settings.orders,psCalendarDefaultColors.orders),
+  events:psCalendarSafeColor(settings.events,psCalendarDefaultColors.events)
+ };
+}
+function psCalendarColorStyles(){
+ if(document.getElementById('ps-calendar-user-colors'))return;
+ const style=document.createElement('style');
+ style.id='ps-calendar-user-colors';
+ style.textContent=
+  '#ps-home-calendar .ps-cal-dot{background:var(--ps-calendar-orders,#92765f)}'+
+  '#ps-home-calendar .ps-cal-dot.event{background:var(--ps-calendar-events,#557d70)}'+
+  '#ps-home-calendar .ps-cal-color-controls{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:10px 0}'+
+  '#ps-home-calendar .ps-cal-color-label{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:13px}'+
+  '#ps-home-calendar .ps-cal-color-label input[type=color]{width:43px;height:38px;padding:2px;border:1px solid #a8aea5;border-radius:8px;background:transparent;cursor:pointer}'+
+  '@media(max-width:370px){#ps-home-calendar .ps-cal-color-controls{grid-template-columns:1fr}}';
+ document.head.append(style);
+}
+function psCalendarApplyColors(root){
+ const colors=psCalendarColors();
+ root.style.setProperty('--ps-calendar-orders',colors.orders);
+ root.style.setProperty('--ps-calendar-events',colors.events);
+}
+const psCalendarCustomColorsDrawBefore=psCalendarDraw;
+psCalendarDraw=function(){
+ psCalendarCustomColorsDrawBefore();
+ const root=$('ps-home-calendar');if(!root)return;
+ psCalendarColorStyles();
+ psCalendarApplyColors(root);
+ const settings=document.createElement('details');
+ settings.className='ps-cal-settings';
+ settings.style.cssText='margin:12px 0 0;padding-top:9px;border-top:1px solid rgba(128,128,128,.18)';
+ const heading=document.createElement('summary');
+ heading.style.cssText='cursor:pointer;font-size:13px;font-weight:600';
+ heading.textContent='Customize calendar colors';
+ settings.append(heading);
+ const note=document.createElement('p');note.className='muted small';
+ note.textContent='Choose your order and event highlight colors. Your preferences are saved on this device.';
+ settings.append(note);
+ const inputs=document.createElement('div');inputs.className='ps-cal-color-controls';
+ const colors=psCalendarColors();
+ const pickers={};
+ for(const [key,label] of [['orders','Orders'],['events','Events']]){
+  const wrapper=document.createElement('label');wrapper.className='ps-cal-color-label';
+  const picker=document.createElement('input');picker.type='color';picker.value=colors[key];
+  picker.setAttribute('aria-label',label+' highlight color');pickers[key]=picker;
+  const text=document.createElement('span');text.textContent=label;
+  wrapper.append(picker,text);inputs.append(wrapper);
+  picker.addEventListener('input',()=>{
+   d.settings||={};
+   d.settings.calendarColors={...psCalendarColors(),[key]:picker.value};
+   psCalendarApplyColors(root);
+   save();
+  });
+ }
+ settings.append(inputs);
+ const reset=document.createElement('button');reset.type='button';reset.className='alt';
+ reset.textContent='Reset to default colors';
+ reset.addEventListener('click',()=>{
+  d.settings||={};
+  d.settings.calendarColors={...psCalendarDefaultColors};
+  for(const [key,picker] of Object.entries(pickers))picker.value=psCalendarDefaultColors[key];
+  psCalendarApplyColors(root);
+  save();
+ });
+ settings.append(reset);
+ root.append(settings);
+};
+
 try{render();psWelcomeFirstLaunch()}catch(psError){window.psShowStartupError?.(psError?.stack||psError?.message||psError);psEmergencyRecovery(psError)}if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
