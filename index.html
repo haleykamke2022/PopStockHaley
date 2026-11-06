@@ -6728,4 +6728,134 @@ renderProduction=function(){
  });
 };
 
+
+/* Home scheduling calendar: orders and events. */
+let psCalendarMonth=new Date(new Date().getFullYear(),new Date().getMonth(),1);
+let psCalendarSelected='';
+function psCalendarDateKey(y,m,day){return y+'-'+String(m+1).padStart(2,'0')+'-'+String(day).padStart(2,'0')}
+function psCalendarEntries(){
+ const entries=[];
+ for(const kind of ['orders','events']){
+  for(const p of d[kind]||[]){
+   const date=String(p.date||p.due||'').slice(0,10);
+   if(!/^\d{4}-\d{2}-\d{2}$/.test(date))continue;
+   const [year,month,day]=date.split('-').map(Number);
+   if(!year||month<1||month>12||day<1||day>new Date(year,month,0).getDate())continue;
+   if(['cancelled','canceled'].includes(String(p.status||'').toLowerCase()))continue;
+   entries.push({date,kind,id:p.id,name:p.name||p.customer||(kind==='events'?'Event':'Order'),status:p.status||'Planned'});
+  }
+ }
+ return entries.sort((a,b)=>a.date.localeCompare(b.date)||a.name.localeCompare(b.name));
+}
+function psCalendarInitStyle(){
+ if(document.getElementById('ps-calendar-style'))return;
+ const css=document.createElement('style');css.id='ps-calendar-style';
+ css.textContent=
+ '.ps-calendar-card{margin:14px 0}.ps-cal-head{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px}'+
+ '.ps-cal-arrows{display:flex;gap:6px;align-items:center}.ps-cal-arrows button{min-width:38px;padding:8px}.ps-cal-legend{display:flex;gap:13px;flex-wrap:wrap;margin:7px 0 12px;font-size:12px}'+
+ '.ps-cal-legend span{display:inline-flex;gap:6px;align-items:center}.ps-cal-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#92765f}.ps-cal-dot.event{background:#557d70}'+
+ '.ps-cal-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px}.ps-cal-weekday{text-align:center;font-size:11px;font-weight:700;opacity:.65;padding:5px 0}'+
+ '.ps-cal-cell{border:1px solid transparent;min-height:45px;border-radius:9px;background:transparent;padding:5px 2px;display:flex;flex-direction:column;align-items:center;justify-content:space-between;gap:3px;color:inherit}'+
+ '.ps-cal-cell[data-has="1"]{background:rgba(141,157,127,.12);cursor:pointer}.ps-cal-cell[data-selected="1"]{border:2px solid #557d70;background:rgba(85,125,112,.13)}'+
+ '.ps-cal-cell[data-today="1"] .ps-cal-day{border:1px solid currentColor;border-radius:50%;padding:1px 5px}'+
+ '.ps-cal-markers{min-height:8px;display:flex;gap:3px;align-items:center}.ps-cal-markers .ps-cal-dot{width:7px;height:7px}'+
+ '.ps-cal-agenda{border-top:1px solid rgba(128,128,128,.2);margin-top:12px;padding-top:10px}.ps-cal-agenda-head{font-size:13px;font-weight:700;margin-bottom:6px}'+
+ '.ps-cal-agenda-row{display:flex;justify-content:space-between;align-items:center;gap:9px;padding:9px 0;border-bottom:1px solid rgba(128,128,128,.12)}'+
+ '.ps-cal-agenda-row strong{display:block;overflow-wrap:anywhere}.ps-cal-agenda-row .muted{font-size:12px}'+
+ '@media(max-width:380px){.ps-cal-cell{min-height:41px}.ps-cal-grid{gap:2px}.ps-calendar-card{padding:12px}}';
+ document.head.append(css);
+}
+function psCalendarNavigate(delta){
+ psCalendarMonth=new Date(psCalendarMonth.getFullYear(),psCalendarMonth.getMonth()+delta,1);
+ psCalendarSelected='';
+ psCalendarDraw();
+}
+function psCalendarOpen(kind,id){
+ const plan=(d[kind]||[]).find(v=>String(v.id)===String(id));
+ go(kind);
+ if(plan&&String(plan.status||'').toLowerCase()==='planned')editPlan(kind,id);
+}
+function psCalendarDraw(){
+ const root=$('ps-home-calendar');
+ if(!root)return;
+ const y=psCalendarMonth.getFullYear(),m=psCalendarMonth.getMonth();
+ const first=new Date(y,m,1).getDay(),count=new Date(y,m+1,0).getDate();
+ const entries=psCalendarEntries();
+ const today=new Date(),todayKey=psCalendarDateKey(today.getFullYear(),today.getMonth(),today.getDate());
+ const dates=new Map();
+ for(const entry of entries){
+  if(!entry.date.startsWith(y+'-'+String(m+1).padStart(2,'0')+'-'))continue;
+  if(!dates.has(entry.date))dates.set(entry.date,[]);
+  dates.get(entry.date).push(entry);
+ }
+ const selectedPresent=psCalendarSelected&&dates.has(psCalendarSelected);
+ if(!selectedPresent){
+  const future=[...dates.keys()].filter(key=>key>=todayKey).sort();
+  psCalendarSelected=dates.has(todayKey)?todayKey:future[0]||[...dates.keys()].sort()[0]||'';
+ }
+ root.textContent='';
+ const header=document.createElement('div');header.className='ps-cal-head';
+ const title=document.createElement('h3');title.textContent=psCalendarMonth.toLocaleDateString(undefined,{month:'long',year:'numeric'});
+ const arrows=document.createElement('div');arrows.className='ps-cal-arrows';
+ const prev=document.createElement('button');prev.type='button';prev.className='alt';prev.textContent='‹';prev.setAttribute('aria-label','Previous month');prev.onclick=()=>psCalendarNavigate(-1);
+ const now=document.createElement('button');now.type='button';now.className='alt';now.textContent='Today';now.onclick=()=>{psCalendarMonth=new Date(today.getFullYear(),today.getMonth(),1);psCalendarSelected=todayKey;psCalendarDraw()};
+ const next=document.createElement('button');next.type='button';next.className='alt';next.textContent='›';next.setAttribute('aria-label','Next month');next.onclick=()=>psCalendarNavigate(1);
+ arrows.append(prev,now,next);header.append(title,arrows);root.append(header);
+ const legend=document.createElement('div');legend.className='ps-cal-legend';
+ for(const [kind,name] of [['order','Order due'],['event','Event']]){
+  const item=document.createElement('span'),dot=document.createElement('i');dot.className='ps-cal-dot'+(kind==='event'?' event':'');
+  item.append(dot,document.createTextNode(name));legend.append(item);
+ }
+ root.append(legend);
+ const grid=document.createElement('div');grid.className='ps-cal-grid';grid.setAttribute('role','group');grid.setAttribute('aria-label','Days of the month');
+ for(const name of ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']){
+  const label=document.createElement('div');label.className='ps-cal-weekday';label.textContent=name;grid.append(label);
+ }
+ for(let i=0;i<first;i++){const blank=document.createElement('div');grid.append(blank);}
+ for(let day=1;day<=count;day++){
+  const date=psCalendarDateKey(y,m,day),items=dates.get(date)||[];
+  const button=document.createElement('button');button.type='button';button.className='ps-cal-cell';
+  button.dataset.has=items.length?'1':'0';button.dataset.selected=date===psCalendarSelected?'1':'0';
+  button.dataset.today=date===todayKey?'1':'0';
+  button.setAttribute('aria-label',new Date(y,m,day).toLocaleDateString(undefined,{month:'long',day:'numeric'})+(items.length?' - '+items.filter(i=>i.kind==='orders').length+' orders, '+items.filter(i=>i.kind==='events').length+' events':' - no scheduled items'));
+  button.setAttribute('aria-pressed',String(date===psCalendarSelected));
+  const number=document.createElement('span');number.className='ps-cal-day';number.textContent=day;
+  const dots=document.createElement('span');dots.className='ps-cal-markers';
+  if(items.some(i=>i.kind==='orders')){const dot=document.createElement('i');dot.className='ps-cal-dot';dots.append(dot)}
+  if(items.some(i=>i.kind==='events')){const dot=document.createElement('i');dot.className='ps-cal-dot event';dots.append(dot)}
+  button.append(number,dots);
+  button.onclick=()=>{psCalendarSelected=date;psCalendarDraw()};
+  grid.append(button);
+ }
+ root.append(grid);
+ const agenda=document.createElement('div');agenda.className='ps-cal-agenda';
+ const agendaTitle=document.createElement('div');agendaTitle.className='ps-cal-agenda-head';
+ agendaTitle.textContent=psCalendarSelected?new Date(psCalendarSelected+'T12:00:00').toLocaleDateString(undefined,{weekday:'long',month:'short',day:'numeric'}):'No orders or events this month';
+ agenda.append(agendaTitle);
+ const selected=dates.get(psCalendarSelected)||[];
+ if(!selected.length){
+  const empty=document.createElement('p');empty.className='muted small';empty.textContent='Select a highlighted date to see its orders and events.';agenda.append(empty);
+ }
+ for(const entry of selected){
+  const row=document.createElement('div');row.className='ps-cal-agenda-row';
+  const info=document.createElement('div'),name=document.createElement('strong');name.textContent=entry.name;
+  const detail=document.createElement('span');detail.className='muted';detail.textContent=(entry.kind==='orders'?'Order':'Event')+' · '+entry.status;
+  info.append(name,detail);
+  const view=document.createElement('button');view.type='button';view.className='alt';view.textContent='View';
+  view.onclick=()=>psCalendarOpen(entry.kind,entry.id);
+  row.append(info,view);agenda.append(row);
+ }
+ root.append(agenda);
+}
+const psCalendarHomeBefore=renderHome;
+renderHome=function(){
+ psCalendarHomeBefore();
+ const root=$('home');if(!root)return;
+ psCalendarInitStyle();
+ const card=document.createElement('div');card.className='card ps-calendar-card';card.id='ps-home-calendar';
+ const stats=root.querySelector('.home-stats');
+ if(stats)stats.after(card);else root.prepend(card);
+ psCalendarDraw();
+};
+
 try{render();psWelcomeFirstLaunch()}catch(psError){window.psShowStartupError?.(psError?.stack||psError?.message||psError);psEmergencyRecovery(psError)}if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
