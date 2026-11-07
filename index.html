@@ -4018,7 +4018,7 @@ renderPlans=function(kind){
   const datedPast=/^\d{4}-\d{2}-\d{2}$/.test(rawDate)&&rawDate<today;
   const status=String(event.status||'').trim().toLowerCase();
   // Date takes precedence over type/status: every dated historical event is past.
-  const isPast=status==='completed'||(datedPast&&status!=='in progress');
+  const isPast=status==='completed'; // Planned and In progress stay actionable, even when a date needs correction.
   (isPast?past:active).push({card,event});
  });
  // Include manually recorded historical events, regardless of their category.
@@ -7151,5 +7151,57 @@ document.addEventListener('keydown',function psPreventAccidentalEnter(event){
   event.stopImmediatePropagation();
  }
 },true);
+
+
+/* Reopen never-started events without changing inventory. */
+function psEventHasStockPull(p){
+ const positiveMap=record=>Object.values(record||{}).some(v=>Number(v)>0);
+ return !!p.deducted||positiveMap(p.used)||positiveMap(p.eventPackagingUsed)||
+   positiveMap(p.packagingUsed)||(Array.isArray(p.usedFreezer)&&p.usedFreezer.some(v=>Number(v.qty)>0));
+}
+function psReopenUnstartedEvent(eventId){
+ const p=(d.events||[]).find(v=>String(v.id)===String(eventId));
+ if(!p||p.status!=='Completed')return;
+ if(psEventHasStockPull(p)){
+  alert('This event has a stock-pull record. Reopening it as a never-started event could hide real deductions. No changes were made. Review its inventory and report first.');
+  return;
+ }
+ const transferred=(d.freezer||[]).some(f=>String(f.reportEvent)===String(p.id));
+ if(transferred){
+  alert('This event has a saved freezer transfer. Review its event report and freezer stock before changing its status. No changes were made.');
+  return;
+ }
+ const warning=p.report?'A saved event report will remain attached to this event. Review or correct the report after reopening.\n\n':'';
+ if(!confirm('Return "'+(p.name||'this event')+'" to Upcoming / Planned?\n\n'+warning+
+ 'No inventory will be changed. Your flavors, decorations, dates, notes and other event details will be kept.'))return;
+ p.status='Planned';
+ d.log||=[];
+ d.log.push({type:'Never-started event reopened',kind:'events',id:p.id,date:new Date().toISOString(),inventoryChanged:false});
+ save();render();
+}
+const psReopenUnstartedEventsRenderBefore=renderPlans;
+renderPlans=function(kind){
+ psReopenUnstartedEventsRenderBefore(kind);
+ if(kind!=='events')return;
+ const root=$('events');if(!root)return;
+ const past=root.querySelector('.ps-events-past');
+ for(const p of (d.events||[])){
+  if(p.status!=='Completed')continue;
+  const card=[...root.querySelectorAll('.card')].find(c=>
+   [...c.querySelectorAll('button[onclick]')].some(b=>b.getAttribute('onclick')==="editPlan('events','"+p.id+"')"));
+  if(!card)continue;
+  const actions=card.querySelector('.actions')||card;
+  if(!psEventHasStockPull(p)&&!(d.freezer||[]).some(f=>String(f.reportEvent)===String(p.id))){
+   const button=document.createElement('button');button.type='button';button.className='alt';
+   button.textContent='Return to Upcoming (not started)';
+   button.addEventListener('click',()=>psReopenUnstartedEvent(p.id));
+   actions.append(button);
+  }else{
+   const hint=document.createElement('p');hint.className='small muted';
+   hint.textContent='This event has inventory activity. Review its report before reopening to avoid changing stock incorrectly.';
+   actions.after(hint);
+  }
+ }
+};
 
 try{render();psWelcomeFirstLaunch()}catch(psError){window.psShowStartupError?.(psError?.stack||psError?.message||psError);psEmergencyRecovery(psError)}if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
