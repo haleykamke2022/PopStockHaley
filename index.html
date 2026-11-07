@@ -7298,4 +7298,31 @@ editItem=function(x='',cat=''){
  update();
 };
 
+
+/* Keep cake-mix recipe prices and remaining opened-box display aligned. */
+const psCakeMixCostPartBefore=costPart;
+costPart=function(part){
+ const item=(d.items||[]).find(i=>String(i.id)===String(part.id))||
+  (d.items||[]).find(i=>normal(i.name)===normal(part.name));
+ if(psDryCakeMixItem(item)&&psDryCakeMixCountUnit(item.unit)){
+  const cups=psDryCakeMixCups(part.qty,part.unit);
+  const price=Number(item.packageCost),size=Number(item.packageSize);
+  const purchaseUnit=normal(item.packageUnit||item.unit||'');
+  const countSize=psDryCakeMixCountUnit(purchaseUnit)?size:1;
+  if(cups!==null&&item.packageCost!==undefined&&Number.isFinite(price)&&size>0&&countSize>0){
+   return {cost:(cups/psDryCakeMixCupsPerBox)*(price/countSize),unknown:false};
+  }
+ }
+ return psCakeMixCostPartBefore(part);
+};
+const psCakeMixBalanceBefore=psOpenPackageBalance;
+psOpenPackageBalance=function(item){
+ if(psDryCakeMixItem(item)&&psDryCakeMixCountUnit(item.unit)){
+  const qty=Number(item.qty);
+  if(!Number.isFinite(qty))return null;
+  return {amount:Math.max(0,qty*psDryCakeMixCupsPerBox),unit:'cup',packages:qty};
+ }
+ return psCakeMixBalanceBefore(item);
+};
+
 try{render();psWelcomeFirstLaunch()}catch(psError){window.psShowStartupError?.(psError?.stack||psError?.message||psError);psEmergencyRecovery(psError)}if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
