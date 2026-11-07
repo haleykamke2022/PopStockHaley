@@ -7585,4 +7585,51 @@ renderPlans=function(kind){
  }
 };
 
+
+/* Save event dough estimates when an entered weight is committed (blur/change). */
+const psEventProductionOpenWithAutosaveBefore=psEventProductionOpen;
+psEventProductionOpen=function(eventId){
+ psEventProductionOpenWithAutosaveBefore(eventId);
+ const form=$('psEventProductionForm');
+ const eventPlan=(d.events||[]).find(v=>String(v.id)===String(eventId));
+ if(!form||!eventPlan)return;
+ const note=document.createElement('p');note.className='small muted';
+ note.textContent='Dough estimates save automatically when you leave a weight field. Use Save production progress for finished and lost counts.';
+ form.querySelector('.actions')?.before(note);
+ form.addEventListener('change',e=>{
+  if(!e.target.matches('.ps-ew-weight,.ps-ew-unit,.ps-ew-piece'))return;
+  const block=e.target.closest('.ps-event-prod-row'),index=Number(block?.dataset.line);
+  const line=eventPlan.lines?.[index];if(!line||!block)return;
+  const weight=block.querySelector('.ps-ew-weight').value.trim();
+  const unit=block.querySelector('.ps-ew-unit').value;
+  const piece=block.querySelector('.ps-ew-piece').value.trim();
+  if((weight!==''&&!(Number(weight)>0))||(piece!==''&&!(Number(piece)>0)))return;
+  const estimate=psEventProductionEstimate(line,weight,unit,piece);
+  const rows=psEventProductionRows(eventPlan);
+  rows[index]={...rows[index],flavor:line.flavor,shape:line.shape,doughWeight:weight,
+   doughUnit:unit,pieceWeightOz:piece,estimated:estimate?.estimate??null,recordedAt:new Date().toISOString()};
+  eventPlan.eventProduction={rows,updatedAt:new Date().toISOString()};
+  if(Number(weight)>0){
+   d.productionDoughDrafts||={};
+   d.productionDoughDrafts[ps6cDraftKey('events',eventPlan.id,line)]={
+    weight:Number(weight),unit,batches:1,date:new Date().toISOString()};
+  }
+  save();
+ });
+};
+const psEventWorkflowProductionBefore=renderProduction;
+renderProduction=function(){
+ psEventWorkflowProductionBefore();
+ const root=$('production');if(!root)return;
+ for(const p of d.events||[]){
+  const card=[...root.querySelectorAll('[data-prod-action="details"][data-kind="events"]')]
+    .find(b=>String(b.dataset.id)===String(p.id))?.closest('.card');
+  if(!card||card.querySelector('.ps-event-production-shortcut'))continue;
+  const button=document.createElement('button');button.type='button';button.className='alt ps-event-production-shortcut';
+  button.textContent='Event dough, finished pops & losses';
+  button.addEventListener('click',()=>psEventProductionOpen(p.id));
+  const actions=card.querySelector('.actions');if(actions)actions.append(button);else card.append(button);
+ }
+};
+
 try{render();psWelcomeFirstLaunch()}catch(psError){window.psShowStartupError?.(psError?.stack||psError?.message||psError);psEmergencyRecovery(psError)}if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
