@@ -4018,7 +4018,7 @@ renderPlans=function(kind){
   const datedPast=/^\d{4}-\d{2}-\d{2}$/.test(rawDate)&&rawDate<today;
   const status=String(event.status||'').trim().toLowerCase();
   // Date takes precedence over type/status: every dated historical event is past.
-  const isPast=datedPast||status==='completed';
+  const isPast=status==='completed'||(datedPast&&status!=='in progress');
   (isPast?past:active).push({card,event});
  });
  // Include manually recorded historical events, regardless of their category.
@@ -6933,6 +6933,190 @@ psCalendarDraw=function(){
  });
  settings.append(reset);
  root.append(settings);
+};
+
+
+/* Event recovery and accidental-start prevention. Keeps stock transactions reversible. */
+function psEventQuantitySnapshot(){
+ return {
+  items:Object.fromEntries((d.items||[]).map(i=>[String(i.id),Number(i.qty)])),
+  freezer:Object.fromEntries((d.freezer||[]).map(i=>[String(i.id),Number(i.qty)]))
+ };
+}
+const psSafeEventProgressBefore=progress;
+progress=function(kind,x){
+ if(kind!=='events')return psSafeEventProgressBefore(kind,x);
+ const plan=(d.events||[]).find(p=>String(p.id)===String(x));
+ if(!plan||plan.status!=='Planned')return;
+ const ok=prompt('START EVENT: This will pull ingredients and packaging from stock and lock event quantities.\n\nTo prevent an accidental start, type START below. Choose Cancel to keep planning.');
+ if(ok!=='START')return;
+ const before=psEventQuantitySnapshot();
+ const previous={};
+ for(const key of ['status','deducted','used','usedFreezer','eventPackagingUsed','eventPackagingCount']){
+  previous[key]={present:Object.prototype.hasOwnProperty.call(plan,key),value:JSON.parse(JSON.stringify(plan[key]??null))};
+ }
+ psSafeEventProgressBefore(kind,x);
+ const current=(d.events||[]).find(p=>String(p.id)===String(x));
+ if(!current||current.status!=='In progress'||!current.deducted)return;
+ const after=psEventQuantitySnapshot(),changes={items:[],freezer:[]};
+ for(const part of ['items','freezer']){
+  for(const [id,qty] of Object.entries(before[part])){
+   const q=after[part][id];
+   if(Number.isFinite(q)&&Number.isFinite(qty)&&Math.abs(q-qty)>1e-8){
+    changes[part].push({id,before:qty,after:q});
+   }
+  }
+ }
+ current.psEventStartUndo={version:1,at:new Date().toISOString(),before:previous,changes};
+ save();
+ render();
+};
+function psEventRestoreAction(x){
+ const plan=(d.events||[]).find(p=>String(p.id)===String(x));
+ if(!plan||plan.status!=='In progress')return;
+ if(plan.report||plan.actualCounts||plan.psEventStartUndo?.restored){
+  alert('This event already has production or report information. Reopening it automatically could alter real inventory records. Review the event and stock manually first.');return;
+ }
+ const snapshot=plan.psEventStartUndo;
+ const changes={items:[],freezer:[]};
+ if(snapshot?.version===1){
+  for(const part of ['items','freezer']){
+   for(const row of snapshot.changes?.[part]||[])changes[part].push({...row});
+  }
+  const mismatch=[];
+  for(const part of ['items','freezer']){
+   const collection=part==='items'?d.items:d.freezer;
+   for(const row of changes[part]){
+    const entry=collection.find(i=>String(i.id)===String(row.id));
+    if(!entry||Math.abs(Number(entry.qty)-row.after)>1e-7)mismatch.push((entry?.name||row.id)+' ('+part+')');
+   }
+  }
+  if(mismatch.length){
+   alert('Cannot safely undo stock automatically because quantities changed since this event started: '+mismatch.join(', ')+'. No data was changed. Check the inventory before restoring this event.');return;
+  }
+ }else{
+  // Events started before this feature have no transaction snapshot.
+  // Require conscious, itemized stock review before making corrections.
+  const supply=new Map();
+  for(const record of [plan.used||{},plan.eventPackagingUsed||{}]){
+   for(const [id,qty] of Object.entries(record)){
+    if(Number(qty)>0)supply.set(id,(supply.get(id)||0)+Number(qty));
+   }
+  }
+  for(const [id,qty] of supply){
+   const entry=(d.items||[]).find(i=>String(i.id)===String(id));
+   if(!entry){alert('This event references a deleted stock item. No inventory was changed. Review inventory manually.');return}
+   changes.items.push({id,before:Number(entry.qty)+qty,after:Number(entry.qty)});
+  }
+  for(const allocation of plan.usedFreezer||[]){
+   const entry=(d.freezer||[]).find(i=>String(i.id)===String(allocation.freezer));
+   if(!entry){alert('A freezer stock entry is missing. No inventory was changed. Review inventory manually.');return}
+   const prior=changes.freezer.find(v=>v.id===String(entry.id));
+   if(prior)prior.before+=Number(allocation.qty)||0;
+   else changes.freezer.push({id:String(entry.id),before:Number(entry.qty)+(Number(allocation.qty)||0),after:Number(entry.qty)});
+  }
+  if(!changes.items.length&&!changes.freezer.length){
+   alert('No reliable stock-pull record is available for this older event. No changes were made.');return;
+  }
+ }
+ const describe=changes.items.map(row=>{
+  const item=d.items.find(i=>String(i.id)===String(row.id));
+  return (item?.name||row.id)+': '+(row.before-row.after).toFixed(3)+' '+(item?.unit||'');
+ }).concat(changes.freezer.map(row=>{
+  const item=d.freezer.find(i=>String(i.id)===String(row.id));
+  return (item?.name||row.id)+': '+(row.before-row.after).toFixed(3)+' freezer units';
+ }));
+ const warning=snapshot?.version===1?
+  'PopStock verified that the affected inventory quantities have not changed since the event started.':
+  'This event was started before safe undo tracking existed. PopStock cannot verify later inventory changes. Only proceed if these ingredients and freezer quantities really need to be returned.';
+ const answer=prompt('UNDO EVENT START: '+(plan.name||'Event')+
+  '\n\n'+warning+'\n\nStock quantities to return:\n'+describe.join('\n')+
+  '\n\nThis reopens planning and permits a fresh stock pull later.\nType UNDO to confirm.');
+ if(answer!=='UNDO')return;
+ // Repeat checks after user confirmation before any mutation.
+ if(plan.status!=='In progress'||plan.report)return;
+ const undoBefore=JSON.stringify(d);
+ try{
+  for(const part of ['items','freezer']){
+   const collection=part==='items'?d.items:d.freezer;
+   for(const row of changes[part]){
+    const item=collection.find(i=>String(i.id)===String(row.id));
+    if(!item)throw Error('Stock item unavailable');
+    if(snapshot?.version===1&&Math.abs(Number(item.qty)-row.after)>1e-7)throw Error('Stock changed since event start');
+    item.qty=+Number(row.before).toFixed(8);
+   }
+  }
+  if(snapshot?.version===1){
+   for(const [key,state] of Object.entries(snapshot.before||{})){
+    if(state.present)plan[key]=state.value;
+    else delete plan[key];
+   }
+  }else{
+   plan.status='Planned';plan.deducted=false;
+   for(const key of ['used','usedFreezer','eventPackagingUsed','eventPackagingCount'])delete plan[key];
+  }
+  delete plan.psEventStartUndo;
+  d.log||=[];
+  d.log.push({type:'Accidental event start undone',kind:'events',id:x,date:new Date().toISOString(),
+   returned:changes.items.map(v=>({id:v.id,qty:v.before-v.after})),
+   freezerReturned:changes.freezer.map(v=>({id:v.id,qty:v.before-v.after})),legacy:!snapshot});
+  save();render();
+  alert('Event returned to Planned. Stock was restored as shown. You can edit the event again.');
+ }catch(error){
+  d=JSON.parse(undoBefore);
+  alert('Undo stopped without saving changes: '+error.message);
+  render();
+ }
+}
+const psEventRecoveryRenderPlansBefore=renderPlans;
+renderPlans=function(kind){
+ psEventRecoveryRenderPlansBefore(kind);
+ if(kind!=='events')return;
+ const root=$('events');if(!root)return;
+ const past=root.querySelector('.ps-events-past');
+ if(past){
+  past.open=!!d.settings?.psPastEventsExpanded;
+  past.addEventListener('toggle',()=>{
+   d.settings||={};
+   if(d.settings.psPastEventsExpanded===past.open)return;
+   d.settings.psPastEventsExpanded=past.open;
+   save();
+  });
+ }
+ for(const plan of d.events||[]){
+  const card=[...root.querySelectorAll('.card')].find(c=>
+   [...c.querySelectorAll('button[onclick]')].some(b=>b.getAttribute('onclick')==="editPlan('events','"+plan.id+"')"));
+  if(!card)continue;
+  const start=[...card.querySelectorAll('button')].find(b=>/start\s*\/\s*pull stock/i.test(b.textContent));
+  if(start){
+   start.textContent='Start event & pull stock';
+   start.style.cssText='margin-top:8px;border:1px solid #ad8d7c';
+   start.setAttribute('aria-label','Start event and deduct inventory — confirmation required');
+  }
+  if(plan.status==='In progress'&&!plan.report){
+   const actions=card.querySelector('.actions')||card;
+   if(!actions.querySelector('.ps-undo-event-start')){
+    const button=document.createElement('button');
+    button.type='button';button.className='alt ps-undo-event-start';
+    button.textContent='Undo accidental start';
+    button.style.cssText='margin-top:10px';
+    button.addEventListener('click',()=>psEventRestoreAction(plan.id));
+    actions.append(button);
+   }
+  }
+ }
+};
+const psEventRecoveryRenderProductionBefore=renderProduction;
+renderProduction=function(){
+ psEventRecoveryRenderProductionBefore();
+ const root=$('production');if(!root)return;
+ root.querySelectorAll('[data-prod-action="start"][data-kind="events"]').forEach(button=>{
+  button.textContent='Start event & pull stock';
+  button.setAttribute('aria-label','Start event and deduct inventory — confirmation required');
+ });
+ root.querySelectorAll('[data-prod-action="finish"][data-kind="events"]').forEach(button=>{
+  button.textContent='Open event report';
+ });
 };
 
 try{render();psWelcomeFirstLaunch()}catch(psError){window.psShowStartupError?.(psError?.stack||psError?.message||psError);psEmergencyRecovery(psError)}if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
