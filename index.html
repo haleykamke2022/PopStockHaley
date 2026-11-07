@@ -7632,4 +7632,25 @@ renderProduction=function(){
  }
 };
 
+
+/* One event shopping list, not a second packaging list. */
+const psOneEventShoppingBefore=renderShopping;
+renderShopping=function(){
+ psOneEventShoppingBefore();
+ if(shoppingPlanKind!=='events'||!shoppingPlanId)return;
+ const root=$('shopping');if(!root)return;
+ const duplicates=[...root.querySelectorAll('.card')].filter(card=>
+  card.querySelector('h3')?.textContent.trim()==='Required event wrapping and labels');
+ for(const card of duplicates){
+  const errorTexts=[...card.querySelectorAll('.bad')].map(n=>n.textContent.trim()).filter(Boolean);
+  const main=[...root.querySelectorAll('.card')].find(c=>c.querySelector('h3')?.textContent.trim()==='Items to buy');
+  if(main&&errorTexts.length){
+   const alert=document.createElement('div');alert.className='notice';
+   alert.textContent='Event packaging setup needs attention: '+errorTexts.join('; ');
+   main.prepend(alert);
+  }
+  card.remove();
+ }
+};
+
 try{render();psWelcomeFirstLaunch()}catch(psError){window.psShowStartupError?.(psError?.stack||psError?.message||psError);psEmergencyRecovery(psError)}if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
