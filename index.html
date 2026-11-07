@@ -7204,4 +7204,98 @@ renderPlans=function(kind){
  }
 };
 
+
+/* Dry cake mix: one stock box equals 4.5 recipe cups. */
+const psDryCakeMixCupsPerBox=4.5;
+function psDryCakeMixItem(item){
+ if(!item||isShapeStockItem(item))return false;
+ return /(?:^|\b)cake[\s-]*mix(?:\b|$)/i.test(String(item.name||''));
+}
+function psDryCakeMixCountUnit(unit){
+ const u=normal(unit||'');
+ return ['box','boxes','pack','packs','package','packages'].includes(u);
+}
+function psDryCakeMixCups(amount,from){
+ const n=Number(amount);
+ if(!Number.isFinite(n))return null;
+ if(psDryCakeMixCountUnit(from))return n*psDryCakeMixCupsPerBox;
+ return convertedAmount(n,from,'cup');
+}
+const psCakeMixStockConvertBefore=bulkConvertToStock;
+bulkConvertToStock=function(amount,recipeUnit,item){
+ if(psDryCakeMixItem(item)){
+  const stockUnit=normal(item.unit||'');
+  if(psDryCakeMixCountUnit(stockUnit)){
+   const cups=psDryCakeMixCups(amount,recipeUnit);
+   if(cups!==null)return cups/psDryCakeMixCupsPerBox;
+  }else if(['cup','cups'].includes(stockUnit)&&psDryCakeMixCountUnit(recipeUnit)){
+   return Number(amount)*psDryCakeMixCupsPerBox;
+  }
+ }
+ return psCakeMixStockConvertBefore(amount,recipeUnit,item);
+};
+// Used for event reports and margin calculations. Stock counts remain in boxes,
+// so package prices entered per box must not require a box-to-cup unit conversion.
+const psCakeMixEventCostBefore=psRecordedSupplyCost;
+psRecordedSupplyCost=function(usage){
+ const updated={};
+ const cakeMixIds=new Set();
+ for(const [itemId,count] of Object.entries(usage||{})){
+  const item=d.items.find(i=>String(i.id)===String(itemId));
+  if(psDryCakeMixItem(item)&&psDryCakeMixCountUnit(item.unit)){
+   cakeMixIds.add(String(itemId));
+  }else updated[itemId]=count;
+ }
+ const result=psCakeMixEventCostBefore(updated);
+ for(const itemId of cakeMixIds){
+  const item=d.items.find(i=>String(i.id)===itemId);
+  const count=Number(usage[itemId]),price=Number(item?.packageCost),size=Number(item?.packageSize);
+  const storedMeasure=normal(item?.packageUnit||item?.unit||'');
+  if(!Number.isFinite(count)||count<0||item?.packageCost===undefined||!Number.isFinite(price)||!(size>0)){
+   result.missing.push(item?.name||'Cake mix');continue;
+  }
+  let costPerBox=null;
+  if(psDryCakeMixCountUnit(storedMeasure))costPerBox=price/size;
+  else {
+   const volume=convertedAmount(size,storedMeasure,'cup');
+   if(volume!==null&&volume>0){
+    // The price was entered for one package of cake mix; a package is 4.5 cups.
+    // Treat historical cup-based package sizes as a one-box price rather than
+    // changing saved stock records or repricing the supply.
+    costPerBox=price;
+   }
+  }
+  if(costPerBox===null){result.missing.push(item.name);continue}
+  result.total+=count*costPerBox;
+ }
+ return result;
+};
+const psCakeMixShapeEditBefore=editItem;
+editItem=function(x='',cat=''){
+ psCakeMixShapeEditBefore(x,cat);
+ const form=$('dialogBody')?.querySelector('form');
+ if(!form)return;
+ const name=form.elements.name,stock=form.elements.unit;
+ const unit=form.elements.packageUnit,quantity=form.elements.packageSize;
+ if(!name||!stock)return;
+ const info=document.createElement('p');
+ info.className='notice ps-cake-mix-automatic';
+ info.style.margin='10px 0';
+ const update=()=>{
+  const simulated={name:name.value,unit:stock.value};
+  const applicable=psDryCakeMixItem(simulated)&&psDryCakeMixCountUnit(stock.value);
+  info.hidden=!applicable;
+  if(applicable){
+   info.textContent='Cake mix conversion: 1 box = 4.5 cups of dry mix. PopStock will calculate recipe cup amounts automatically and track opened boxes as fractions. No separate conversion setup is needed.';
+  }
+ };
+ const purchaseHeading=[...form.querySelectorAll('h3')].find(el=>/purchase cost/i.test(el.textContent||''));
+ if(purchaseHeading)purchaseHeading.before(info);
+ else (quantity||unit||stock).after(info);
+ name.addEventListener('input',update);
+ stock.addEventListener('input',update);
+ stock.addEventListener('change',update);
+ update();
+};
+
 try{render();psWelcomeFirstLaunch()}catch(psError){window.psShowStartupError?.(psError?.stack||psError?.message||psError);psEmergencyRecovery(psError)}if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
