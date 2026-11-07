@@ -7119,4 +7119,37 @@ renderProduction=function(){
  });
 };
 
+
+/* Prevent accidental Enter-key submission and production starts. */
+document.addEventListener('keydown',function psPreventAccidentalEnter(event){
+ if(event.key!=='Enter'||event.defaultPrevented||event.isComposing)return;
+ const target=event.target;
+ if(!(target instanceof Element))return;
+ const tag=target.tagName;
+ // Never steal line breaks in notes, or interfere with contenteditable editors.
+ if(tag==='TEXTAREA'||target.closest('[contenteditable="true"]'))return;
+ // A return key in a field is not permission to submit the form, close a modal,
+ // initiate a stock pull, or finish an order/event. Explicit Save taps still work.
+ if(['INPUT','SELECT'].includes(tag)){
+  const inputType=String(target.getAttribute('type')||'').toLowerCase();
+  if(inputType==='submit'||inputType==='button')return;
+  if(target.closest('form')||target.closest('dialog')||target.closest('#events')||
+     target.closest('#orders')||target.closest('#production')){
+   event.preventDefault();
+   return;
+  }
+ }
+ // Keep the dangerous workflow accessible with a deliberate click/tap (or Space
+ // when navigating with a keyboard), but never via an incidental Enter press.
+ const button=target.closest('button');
+ if(!button)return;
+ const inline=String(button.getAttribute('onclick')||'');
+ const action=String(button.dataset.prodAction||'');
+ const startsStock=/\bprogress\s*\(/.test(inline)||action==='start'||/start.*pull stock/i.test(button.textContent||'');
+ if(startsStock&&(button.closest('#events')||button.closest('#orders')||button.closest('#production'))){
+  event.preventDefault();
+  event.stopImmediatePropagation();
+ }
+},true);
+
 try{render();psWelcomeFirstLaunch()}catch(psError){window.psShowStartupError?.(psError?.stack||psError?.message||psError);psEmergencyRecovery(psError)}if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
