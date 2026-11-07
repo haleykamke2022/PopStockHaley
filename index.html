@@ -7325,4 +7325,86 @@ psOpenPackageBalance=function(item){
  return psCakeMixBalanceBefore(item);
 };
 
+
+/* Simple event closeout: brought, sold, automatic remaining; extras optional. */
+const psEventCloseoutSaveBefore=saveEventReport;
+saveEventReport=function(e,x){
+ const form=e?.target;
+ if(!form?.classList?.contains('ps-easy-event-closeout'))return psEventCloseoutSaveBefore(e,x);
+ e.preventDefault();
+ const p=(d.events||[]).find(v=>String(v.id)===String(x));
+ if(!p)return;
+ const sales=form.elements.sales;
+ const raw=sales?.value?.trim()||'';
+ if(raw===''||!Number.isFinite(Number(raw))||Number(raw)<0){
+  alert('Enter the total sales for this event, even if that total was $0.');sales?.focus();return;
+ }
+ for(const row of form.querySelectorAll('.report-row')){
+  const brought=row.querySelector('.made'),sold=row.querySelector('.sold'),frozen=row.querySelector('.frozen'),other=row.querySelector('.other');
+  if(sold.value.trim()===''){alert('Enter how many you sold for every flavor. Use 0 if none sold.');sold.focus();return}
+  const n=Number(brought.value),v=Number(sold.value),f=Number(frozen.value),o=Number(other.value);
+  if(![n,v,f,o].every(z=>Number.isInteger(z)&&z>=0)||v>n||v+f+o>n){
+   alert('Please check the counts. Sold and allocated leftovers cannot exceed the number brought.');sold.focus();return;
+  }
+ }
+ if(p.status==='Planned'&&!p.deducted){
+  if(!confirm('This event is still Planned and its supplies have not been pulled from stock. Finish the report without deducting ingredients?'))return;
+ }
+ if(!confirm('Finish '+(p.name||'this event')+' and save the sales and pop counts? You can edit the report again later.'))return;
+ return psEventCloseoutSaveBefore(e,x);
+};
+eventReport=function(x){
+ const p=(d.events||[]).find(v=>String(v.id)===String(x));if(!p)return;
+ const rep=p.report||{},rows=reportRows(p);
+ const firstReport=!p.report;
+ const html='<form class="ps-easy-event-closeout" onsubmit="saveEventReport(event,\''+esc(x)+'\')">'+
+ '<p class="muted small">Just enter what you brought, what sold, and your event sales. Remaining pops calculate automatically.</p>'+
+ '<label>Total sales from this event ($)</label><input name="sales" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0.00" value="'+(rep.sales!==undefined?esc(rep.sales):'')+'" required>'+
+ '<h3>How many pops sold?</h3>'+
+ '<div id="reportRows">'+rows.map((r,i)=>
+ '<div class="card report-row ps-easy-close-row" data-flavor="'+esc(r.flavor)+'" data-shape="'+esc(r.shape||'')+'">'+
+ '<strong>'+esc(flavorName(r.flavor))+' · '+esc(shapeName(r.shape))+'</strong>'+
+ '<div class="formgrid" style="margin-top:10px"><div><label>Brought</label><input class="made" type="number" min="0" step="1" inputmode="numeric" required value="'+esc(r.made)+'"></div>'+
+ '<div><label>Sold</label><input class="sold" type="number" min="0" step="1" inputmode="numeric" required placeholder="Enter sold" value="'+(firstReport?'':esc(r.sold))+'"></div></div>'+
+ '<p class="ps-easy-remaining muted small" aria-live="polite">Remaining: —</p>'+
+ '<details class="ps-easy-leftover-detail"><summary style="cursor:pointer">Optional: save or move leftovers</summary>'+
+ '<p class="muted small">Only enter quantities you are moving to freezer or recording as donated/discarded/kept. The rest simply stays unallocated; PopStock will not automatically put it into the freezer.</p>'+
+ '<div class="formgrid"><div><label>Move to freezer</label><input class="frozen" type="number" min="0" step="1" inputmode="numeric" value="'+esc(r.frozen)+'"></div>'+
+ '<div><label>Other leftovers</label><input class="other" type="number" min="0" step="1" inputmode="numeric" value="'+esc(r.other)+'"></div></div></details></div>'
+ ).join('')+'</div>'+
+ '<div class="notice ps-easy-close-summary" aria-live="polite">Enter sold counts to see the totals.</div>'+
+ '<details class="card ps-easy-close-optional"><summary style="cursor:pointer"><strong>Optional details</strong></summary>'+
+ '<label>Notes / top sellers / lessons learned</label><textarea name="notes" rows="3">'+esc(rep.notes||'')+'</textarea>'+
+ '<label>Event category</label><select name="eventCategory">'+[...eventCategoryNames].sort((a,b)=>a.localeCompare(b)).map(c=>'<option value="'+esc(c)+'" '+((p.eventCategory||'Market / Vendor Event')===c?'selected':'')+'>'+esc(c)+'</option>').join('')+'</select>'+
+ '<h4>Import POS screenshot</h4><label>Choose screenshot<input type="file" accept="image/*" onchange="readPOSPhoto(this)"></label>'+
+ '<p class="muted small">Check that imported sales are for this event only.</p>'+
+ '<textarea id="posExtract" rows="3" placeholder="Recognized POS text">'+esc(rep.posText||'')+'</textarea>'+
+ '<div id="posStatus" class="muted small"></div><button type="button" class="alt" onclick="previewEventPhotoData()">Review POS suggestions</button>'+
+ '<div id="eventPhotoReview"></div></details>'+
+ '<div class="actions"><button type="submit">'+(p.status==='Completed'?'Save report changes':'Finish event & save report')+'</button>'+
+ '<button type="button" class="alt" onclick="$(\'dialog\').close()">Not now</button></div></form>';
+ modal((p.status==='Completed'?'Edit event results: ':'Finish event: ')+(p.name||'Event'),html);
+ const form=$('dialogBody')?.querySelector('.ps-easy-event-closeout');if(!form)return;
+ const update=()=>{
+  let totalBrought=0,totalSold=0,complete=true,valid=true;
+  for(const row of form.querySelectorAll('.report-row')){
+   const made=row.querySelector('.made'),sold=row.querySelector('.sold'),frozen=row.querySelector('.frozen'),other=row.querySelector('.other');
+   const n=Number(made.value),v=Number(sold.value),f=Number(frozen.value),o=Number(other.value);
+   const hasSold=sold.value.trim()!=='';
+   const good=[n,v,f,o].every(z=>Number.isInteger(z)&&z>=0)&&v<=n&&v+f+o<=n;
+   const remain=row.querySelector('.ps-easy-remaining');
+   remain.textContent=hasSold&&good?'Remaining: '+(n-v)+' pops':hasSold?'Please check quantities':'Remaining: —';
+   remain.style.color=hasSold&&!good?'#a53a32':'';
+   if(!good)valid=false;
+   if(!hasSold)complete=false;
+   totalBrought+=Number.isFinite(n)&&n>=0?n:0;
+   totalSold+=hasSold&&Number.isFinite(v)&&v>=0?v:0;
+  }
+  const summary=form.querySelector('.ps-easy-close-summary');
+  summary.textContent=complete&&valid?'Brought '+totalBrought+' · Sold '+totalSold+' · Remaining '+(totalBrought-totalSold):
+   'Brought '+totalBrought+' · Enter sold counts for every flavor to see your results.';
+ };
+ form.addEventListener('input',update);update();
+};
+
 try{render();psWelcomeFirstLaunch()}catch(psError){window.psShowStartupError?.(psError?.stack||psError?.message||psError);psEmergencyRecovery(psError)}if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
