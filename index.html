@@ -7407,4 +7407,182 @@ eventReport=function(x){
  form.addEventListener('input',update);update();
 };
 
+
+/* Event workflow stages: plan, dough, finish, sell. */
+function psEventProductionRows(p){
+ return (p.lines||[]).map((line,index)=>{
+  const existing=p.eventProduction?.rows?.[index];
+  if(existing&&String(existing.flavor)===String(line.flavor)&&String(existing.shape)===String(line.shape))return {...existing};
+  return {flavor:line.flavor,shape:line.shape,doughWeight:'',doughUnit:'oz',pieceWeightOz:'',
+   estimated:null,finished:'',losses:'',lossReason:''};
+ });
+}
+function psEventProductionEstimate(line,weight,unit,piece){
+ const recipe=(d.recipes||[]).find(r=>String(r.id)===String(line.flavor));
+ const shape=(d.shapes||[]).find(sh=>String(sh.id)===String(line.shape));
+ const depth=Number(recipe?.doughDepthOverride)||psWfDepth(shape);
+ const reference=shape?psShapeWeightEstimate(shape.id,depth,recipe?.id):null;
+ const savedPiece=Number(piece);
+ const perPop=savedPiece>0?savedPiece:reference?.oz;
+ const ounces=Number(weight)/(unit==='g'?28.349523125:1);
+ return Number(weight)>0&&Number.isFinite(ounces)&&perPop>0?{
+  estimate:Math.floor(ounces/perPop),perPop,source:savedPiece>0?'Entered dough weight per pop':reference.source
+ }:null;
+}
+function psEventProductionOpen(eventId){
+ const p=(d.events||[]).find(v=>String(v.id)===String(eventId));if(!p)return;
+ const rows=psEventProductionRows(p);
+ const display=rows.map((record,i)=>{
+  const line=p.lines[i];
+  return '<div class="card ps-event-prod-row" data-line="'+i+'">'+
+   '<strong>'+esc(flavorName(line.flavor))+' · '+esc(shapeName(line.shape))+'</strong>'+
+   '<p class="small muted">Planned menu: '+fmt(Number(line.count)||0)+' pops</p>'+
+   '<label>Finished dough weight</label><div class="formgrid">'+
+   '<input class="ps-ew-weight" type="number" min="0" step="any" inputmode="decimal" placeholder="Weigh dough" value="'+esc(record.doughWeight??'')+'">'+
+   '<select class="ps-ew-unit"><option value="oz" '+(record.doughUnit!=='g'?'selected':'')+'>oz</option><option value="g" '+(record.doughUnit==='g'?'selected':'')+'>grams</option></select></div>'+
+   '<details><summary style="cursor:pointer">Optional: adjust estimated weight per pop</summary>'+
+   '<p class="small muted">Uses the saved shape measurement/reference unless you enter a different dough weight for one pop.</p>'+
+   '<label>Dough weight of one cut pop (oz)</label><input class="ps-ew-piece" type="number" min="0.01" step="any" placeholder="Use saved shape weight" value="'+esc(record.pieceWeightOz??'')+'"></details>'+
+   '<div class="notice ps-ew-estimate">Enter dough weight to estimate pops automatically.</div>'+
+   '<label>Finished, decorated and usable pops</label><input class="ps-ew-finished" type="number" min="0" step="1" inputmode="numeric" placeholder="Enter usable pops" value="'+esc(record.finished??'')+'">'+
+   '<label>Lost during finishing (optional)</label><input class="ps-ew-losses" type="number" min="0" step="1" inputmode="numeric" placeholder="Damaged, rejected or sampled" value="'+esc(record.losses??'')+'">'+
+   '<label>What happened to those pops? (optional)</label><select class="ps-ew-reason">'+
+    [['','Choose a reason'],['appearance','Did not like the appearance'],['damaged','Broke / damaged during decorating'],['taste','Taste testers / samples'],['other','Other or mixed reasons']].map(([v,label])=>'<option value="'+v+'" '+(record.lossReason===v?'selected':'')+'>'+label+'</option>').join('')+
+   '</select>'+
+   '<p class="small muted ps-ew-comparison"></p></div>';
+ }).join('');
+ modal('Production & finishing: '+(p.name||'Event'),
+ '<form id="psEventProductionForm"><p class="muted small">1. Weigh your dough. PopStock estimates the number of cut pops. 2. Record how many became finished, sellable pops. 3. Record any lost to breakage, appearance, or sampling. Your event menu and stock are not changed by saving this progress.</p>'+
+ display+
+ '<p class="muted small">Estimates are planning guides. The difference between estimated and finished may include scraps or unused dough, so PopStock does not automatically call that difference waste.</p>'+
+ '<div class="actions"><button type="submit">Save production progress</button><button type="button" class="alt" onclick="$(\'dialog\').close()">Not now</button></div></form>');
+ const form=$('psEventProductionForm');if(!form)return;
+ const update=()=>{
+  for(const block of form.querySelectorAll('.ps-event-prod-row')){
+   const i=Number(block.dataset.line),line=p.lines[i];
+   const weight=block.querySelector('.ps-ew-weight').value,unit=block.querySelector('.ps-ew-unit').value;
+   const piece=block.querySelector('.ps-ew-piece').value,est=psEventProductionEstimate(line,weight,unit,piece);
+   const completed=block.querySelector('.ps-ew-finished').value,loss=block.querySelector('.ps-ew-losses').value;
+   const recorded=completed!==''&&loss!=='';
+   block.querySelector('.ps-ew-estimate').textContent=est?
+     'Estimated from dough: '+est.estimate+' pops · '+est.perPop.toFixed(2)+' oz per pop ('+est.source+')':
+     'Estimated from dough: not available yet. Enter weight and a saved or custom per-pop weight.';
+   block.querySelector('.ps-ew-comparison').textContent=recorded?
+    'Finished '+completed+' · Lost '+loss+(est?' · Other yield difference '+(est.estimate-Number(completed)-Number(loss)):''):
+    'Finished and lost counts are separate from the dough estimate.';
+  }
+ };
+ form.addEventListener('input',update);form.addEventListener('change',update);update();
+ form.addEventListener('submit',event=>{
+  event.preventDefault();
+  const updated=[];
+  for(const block of form.querySelectorAll('.ps-event-prod-row')){
+   const i=Number(block.dataset.line),line=p.lines[i];
+   const weight=block.querySelector('.ps-ew-weight').value.trim();
+   const unit=block.querySelector('.ps-ew-unit').value,piece=block.querySelector('.ps-ew-piece').value.trim();
+   const finished=block.querySelector('.ps-ew-finished').value.trim();
+   const losses=block.querySelector('.ps-ew-losses').value.trim();
+   const reason=block.querySelector('.ps-ew-reason').value;
+   if(weight!==''&&(!Number.isFinite(Number(weight))||Number(weight)<=0)){alert('Dough weight must be greater than zero.');return}
+   if(piece!==''&&(!Number.isFinite(Number(piece))||Number(piece)<=0)){alert('Per-pop dough weight must be greater than zero.');return}
+   if([finished,losses].some(v=>v!==''&&(!Number.isInteger(Number(v))||Number(v)<0))){alert('Finished and lost counts must be whole numbers of zero or more.');return}
+   if(losses!==''&&Number(losses)>0&&!reason){alert('Choose a reason for the finishing losses, or select Other.');return}
+   const est=psEventProductionEstimate(line,weight,unit,piece);
+   if(est&&finished!==''&&losses!==''&&Number(finished)+Number(losses)>est.estimate){
+    if(!confirm(flavorName(line.flavor)+': finished and lost exceeds the dough estimate. The estimate may be inaccurate. Save these actual numbers anyway?'))return;
+   }
+   updated.push({flavor:line.flavor,shape:line.shape,doughWeight:weight,doughUnit:unit,
+    pieceWeightOz:piece,estimated:est?.estimate??null,finished,losses,lossReason:reason,
+    recordedAt:new Date().toISOString()});
+  }
+  p.eventProduction={rows:updated,updatedAt:new Date().toISOString()};
+  // Keep the existing production dough drafts aligned with the event's weighed dough.
+  d.productionDoughDrafts||={};
+  updated.forEach((row,i)=>{
+   if(Number(row.doughWeight)>0){
+    d.productionDoughDrafts[ps6cDraftKey('events',p.id,p.lines[i])]={
+     weight:Number(row.doughWeight),unit:row.doughUnit,batches:1,date:row.recordedAt};
+   }
+  });
+  save();$('dialog')?.close();render();
+ });
+}
+// Reports use the actual finished/sellable count as the starting 'Brought' value
+// when available. Never rewrite historical reports that already contain actual counts.
+const psEventProductionReportRowsBefore=reportRows;
+reportRows=function(p){
+ const rows=psEventProductionReportRowsBefore(p);
+ if(p?.report?.rows?.length||!Array.isArray(p?.eventProduction?.rows))return rows;
+ rows.forEach((r,i)=>{
+  const finished=p.eventProduction.rows[i];
+  if(finished&&String(finished.flavor)===String(r.flavor)&&String(finished.shape)===String(r.shape)&&
+     finished.finished!==''&&Number.isInteger(Number(finished.finished))&&Number(finished.finished)>=0){
+   r.made=Number(finished.finished);
+  }
+ });
+ return rows;
+};
+const psEventWorkflowRenderBefore=renderPlans;
+renderPlans=function(kind){
+ psEventWorkflowRenderBefore(kind);
+ if(kind!=='events')return;
+ const root=$('events');if(!root)return;
+ for(const p of d.events||[]){
+  const card=[...root.querySelectorAll('.card')].find(c=>
+   [...c.querySelectorAll('button[onclick]')].some(b=>b.getAttribute('onclick')==="editPlan('events','"+p.id+"')"));
+  if(!card)continue;
+  const buttons=[...card.querySelectorAll('button')];
+  // Existing plugins each add shortcuts. Keep exactly one shopping-list button
+  // on the event itself; do not change global shopping data or checklist state.
+  const shops=buttons.filter(b=>/shopping list|shop for|view shopping/i.test(String(b.textContent||''))&&!/forecast/i.test(String(b.textContent||'')));
+  shops.slice(1).forEach(button=>button.remove());
+  if(shops.length){
+   shops[0].textContent='Shopping list';
+   shops[0].type='button';
+   shops[0].onclick=()=>{shoppingPlanKind='events';shoppingPlanId=p.id;shoppingEvent=p.id;go('shopping')};
+  }
+  const cardHeader=card.querySelector('.row');
+  const workflow=document.createElement('div');workflow.className='card ps-event-workflow';
+  workflow.style.cssText='margin:12px 0;padding:12px;border:1px solid #d9e0d5';
+  const title=document.createElement('strong');title.textContent='Event workflow';workflow.append(title);
+  const prod=p.eventProduction?.rows||[];
+  const hasDough=prod.some(v=>Number(v.doughWeight)>0);
+  const finished=prod.length>0&&prod.every(v=>v.finished!==''&&v.finished!==undefined);
+  const losses=prod.reduce((n,v)=>n+(Number(v.losses)||0),0);
+  const total=prod.reduce((n,v)=>n+(v.finished===''?0:Number(v.finished)||0),0);
+  const steps=document.createElement('p');steps.className='small muted';
+  steps.textContent='1. Plan menu and decorations  →  2. Shopping list  →  3. Weigh dough and estimate pops  →  4. Record finished & lost  →  5. Event sales report';
+  workflow.append(steps);
+  const state=document.createElement('p');state.className='small';
+  state.textContent='Event: '+(p.status||'Planned')+
+   ' · Dough: '+(hasDough?'recorded':'not recorded')+
+   ' · Finished: '+(finished?total+' pops':'not recorded')+
+   (losses?' · Finishing losses: '+losses:'');
+  workflow.append(state);
+  const actions=document.createElement('div');actions.className='actions';
+  function add(label,fn,secondary){
+   const b=document.createElement('button');b.type='button';b.className=secondary?'alt':'';
+   b.textContent=label;b.addEventListener('click',fn);actions.append(b);
+  }
+  if(p.status==='Planned')add('Plan menu & decorations',()=>editPlan('events',p.id),true);
+  else add('Review flavor decorations',()=>psEditProductionFlavorNotes('events',p.id),true);
+  if(!shops.length)add('Shopping list',()=>{shoppingPlanKind='events';shoppingPlanId=p.id;shoppingEvent=p.id;go('shopping')},true);
+  add('Weigh dough & record finished pops',()=>psEventProductionOpen(p.id),false);
+  if(p.status==='In progress'||p.status==='Completed')add(p.report?'Edit event sales report':'Finish event: record sales',()=>eventReport(p.id),true);
+  workflow.append(actions);
+  // Keep the old financial what-if forecast available, but separate from dough yield.
+  const forecasts=buttons.filter(b=>/forecast/i.test(String(b.textContent||'')));
+  if(forecasts.length){
+   const details=document.createElement('details');details.style.marginTop='10px';
+   const summary=document.createElement('summary');summary.textContent='Optional: Sales forecast (not dough yield)';summary.style.cursor='pointer';
+   const help=document.createElement('p');help.className='small muted';
+   help.textContent='Estimates possible sales and revenue before a market using low, expected and high sell-through percentages. It does not calculate dough yields, finished pops, or actual sales.';
+   details.append(summary,help);
+   for(const button of forecasts){const wrap=button.closest('.actions');details.append(button);if(wrap&&!wrap.children.length)wrap.remove()}
+   workflow.append(details);
+  }
+  if(cardHeader)cardHeader.insertAdjacentElement('afterend',workflow);else card.prepend(workflow);
+ }
+};
+
 try{render();psWelcomeFirstLaunch()}catch(psError){window.psShowStartupError?.(psError?.stack||psError?.message||psError);psEmergencyRecovery(psError)}if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
