@@ -7804,6 +7804,19 @@ renderShopping=function(){
   if(action==='undo'){delete state.bought[btn.dataset.key];d.shoppingChecklists[key]=state;save();renderShopping()}
  };
 };
+/* Keep master purchases resolvable through the complete receive/save flow. */
+const psPriorReceiptRows=receiptRows;
+receiptRows=function(){
+ if(!psMasterShopping)return psPriorReceiptRows();
+ const live=psMasterNeeds(),seen=new Set(live.map(r=>r.key)),all=[...live];
+ const bought=d.shoppingChecklists[shopKey()]?.bought||{};
+ for(const [key,record] of Object.entries(bought)){
+  if(seen.has(key))continue;
+  const stock=key.startsWith('s:')?d.items.find(i=>i.id===key.slice(2)):null;
+  if(record&&typeof record==='object')all.push({key,name:record.name||stock?.name||'Purchased item',id:record.id||stock?.id||'',unit:record.unit||stock?.unit||'each',need:record.need||'Purchased',have:Number(stock?.qty)||0});
+ }
+ return all;
+};
 const psPreviousCopyShop=copyShop;
 copyShop=function(){
  const state=d.shoppingChecklists[shopKey()]||{bought:{},archived:false};
