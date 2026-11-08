@@ -7653,4 +7653,169 @@ renderShopping=function(){
  }
 };
 
+
+/* PopStock unified categorized and multi-plan shopping v1 */
+d.masterShoppingSelection ||= [];
+let psMasterShopping=false;
+const psOriginalShopKey=shopKey;
+shopKey=function(){
+ if(psMasterShopping)return 'master:'+psSelectedJobs().map(j=>j.kind+':'+j.id).sort().join('|');
+ return psOriginalShopKey();
+};
+function psAvailableJobs(){
+ return ['orders','events'].flatMap(kind=>(d[kind]||[]).filter(p=>p.status==='Planned'||!p.status).map(p=>({kind,id:p.id,plan:p})))
+ .sort((a,b)=>String(a.plan.date||'9999').localeCompare(String(b.plan.date||'9999'))||String(a.plan.name||'').localeCompare(String(b.plan.name||'')));
+}
+function psSelectedJobs(){
+ const ids=new Set(d.masterShoppingSelection||[]);
+ return psAvailableJobs().filter(j=>ids.has(j.kind+':'+j.id));
+}
+function psShopCategory(row){
+ const stock=d.items.find(i=>i.id===row.id)||d.items.find(i=>!isShapeStockItem(i)&&normal(i.name)===normal(row.name));
+ const cat=d.categories.find(c=>c.id===stock?.type)?.name||'';
+ const name=String(row.name||'').toLowerCase(),c=cat.toLowerCase();
+ if(/packag|label|sticker|bag|stick|box|wrapper|supply|equipment/.test(c+' '+name))return 'Packaging & Supplies';
+ if(/sprinkle|candy|chocolate|wafer|melts|decor|cookie|nutella|biscoff/.test(c+' '+name))return 'Candy & Decorations';
+ if(/dairy|refrigerat|egg|butter|milk|cream|cheese|yogurt/.test(c+' '+name))return 'Dairy & Refrigerated';
+ if(/baking|dry|cake mix|flour|sugar|oil|vanilla|cinnamon|powder|extract|mix/.test(c+' '+name))return 'Baking & Dry Goods';
+ return cat||'Other / Uncategorized';
+}
+function psMasterNeeds(){
+ const aggregated=new Map();
+ function add(row,job){
+  const id=row.supply?.id||row.id||'',unit=row.unit||'each';
+  const key=id?'s:'+id:'r:'+normal(row.name)+'|'+normal(unit);
+  const mergeKey=key+'|'+normal(unit);
+  let entry=aggregated.get(mergeKey);
+  if(!entry){entry={key,name:row.name,id,unit,required:0,sources:new Set()};aggregated.set(mergeKey,entry)}
+  entry.required+=Number(row.required)||0;
+  entry.sources.add(job.plan.name||'Untitled');
+ }
+ for(const job of psSelectedJobs()){
+  for(const row of checkRows(freshLines(job.plan)))if(!freeWater(row.name))add(row,job);
+  if(job.kind==='events'&&typeof evtPack==='function'){
+   const count=(job.plan.lines||[]).reduce((n,l)=>n+Number(l.count||0),0);
+   const pack=evtPack(job.plan,count);
+   for(const x of pack.rows||[])add({name:x.item.name,id:x.item.id,unit:x.item.unit||'each',required:x.qty,supply:x.item},job);
+  }
+ }
+ return [...aggregated.values()].map(r=>{
+  const stock=d.items.find(i=>i.id===r.id);
+  const have=Number(stock?.qty)||0,buy=Math.max(0,r.required-have);
+  return {...r,have,buy,need:'Buy '+fmt(buy)+' '+r.unit,sources:[...r.sources],category:psShopCategory(r)};
+ }).filter(r=>r.buy>0).sort((a,b)=>a.name.localeCompare(b.name));
+}
+const psPreviousShopNeeds=shopNeeds;
+shopNeeds=function(){
+ if(psMasterShopping)return psMasterNeeds();
+ return psPreviousShopNeeds();
+};
+function psSetMaster(on){
+ psMasterShopping=!!on;
+ if(on){shoppingPlanKind='';shoppingPlanId=''}
+ renderShopping();
+}
+function psToggleMasterJob(kind,id,checked){
+ const key=kind+':'+id,values=new Set(d.masterShoppingSelection||[]);
+ if(checked)values.add(key);else values.delete(key);
+ d.masterShoppingSelection=[...values];
+ save();renderShopping();
+}
+function psCategoryMarkup(rows,action){
+ const groups=['Baking & Dry Goods','Dairy & Refrigerated','Candy & Decorations','Packaging & Supplies','Other / Uncategorized'];
+ const extra=[...new Set(rows.map(r=>r.category))].filter(c=>!groups.includes(c)).sort();
+ return [...groups,...extra].map(category=>{
+  const matches=rows.filter(r=>r.category===category);
+  if(!matches.length)return '';
+  return '<h4 style="margin:18px 0 7px">'+esc(category)+'</h4>'+matches.map(r=>
+   '<div class="item"><div class="row"><div><strong>'+esc(r.name)+'</strong><div class="small muted">'+esc(r.need||'Purchased')+
+   (r.have!==undefined?' · Have '+fmt(r.have)+' '+esc(r.unit):'')+
+   (r.sources?.length?' · For: '+esc(r.sources.join(', ')):'')+
+   '</div></div><div class="actions">'+
+   (action==='pending'?'<button type="button" class="alt" data-ps-shop="add" data-key="'+esc(r.key)+'">Add to stock</button><button type="button" class="alt" data-ps-shop="bought" data-key="'+esc(r.key)+'">Bought</button>':
+   '<button type="button" class="alt" data-ps-shop="undo" data-key="'+esc(r.key)+'">Undo</button>')+
+   '</div></div></div>').join('');
+ }).join('');
+}
+const psPriorShoppingRender=renderShopping;
+renderShopping=function(){
+ psPriorShoppingRender();
+ const root=$('shopping');if(!root)return;
+ const top=root.querySelector('.card'),selector=top?.querySelector('select');
+ if(selector){
+  const opt=document.createElement('option');opt.value='__master__';opt.textContent='Master shopping list (multiple jobs)';
+  if(psMasterShopping)opt.selected=true;
+  selector.append(opt);
+  const previous=selector.onchange;
+  selector.onchange=function(){
+   if(this.value==='__master__'){psSetMaster(true);return}
+   psMasterShopping=false;
+   if(previous)previous.call(this);
+   else{const [kind,id]=this.value.split(':');shoppingPlanKind=kind||'';shoppingPlanId=id||'';renderShopping()}
+  };
+ }
+ if(psMasterShopping&&top){
+  const jobs=psAvailableJobs(),selected=new Set(d.masterShoppingSelection||[]);
+  const panel=document.createElement('div');panel.style.marginTop='12px';
+  panel.innerHTML='<h3>Choose orders and events</h3><p class="small muted">Combine planned jobs into one list. Inventory is subtracted once after requirements are totaled.</p>'+
+   (jobs.length?jobs.map(j=>'<label style="display:flex;align-items:center;gap:9px;padding:8px 0;margin:0;font-weight:normal"><input type="checkbox" style="width:auto" data-ps-job="'+esc(j.kind+':'+j.id)+'" '+(selected.has(j.kind+':'+j.id)?'checked':'')+'><span>'+esc(j.plan.name||'Untitled')+' <span class="small muted">('+esc(j.kind==='orders'?'Order':'Event')+' · '+esc(j.plan.date||'No date')+')</span></span></label>').join(''):'<p class="muted">No planned events or orders available.</p>');
+  panel.onchange=function(e){const el=e.target.closest('[data-ps-job]');if(!el)return;const [kind,id]=el.dataset.psJob.split(':');psToggleMasterJob(kind,id,el.checked)};
+  top.append(panel);
+ }
+ const card=root.querySelectorAll('.card')[1];if(!card)return;
+ const key=shopKey(),state=d.shoppingChecklists[key]||{bought:{},archived:false};
+ const live=psMasterShopping?psMasterNeeds():receiptRows();
+ const seen=new Set(live.map(r=>r.key));
+ const rows=[...live];
+ for(const [k,v] of Object.entries(state.bought||{})){
+  if(seen.has(k))continue;
+  const stock=k.startsWith('s:')?d.items.find(i=>i.id===k.slice(2)):null;
+  if(v&&typeof v==='object')rows.push({key:k,name:v.name||stock?.name||'Purchased item',id:v.id||stock?.id||'',unit:v.unit||stock?.unit||'each',need:v.need||'Purchased',have:Number(stock?.qty)||0});
+ }
+ for(const r of rows)r.category=psShopCategory(r);
+ if(state.archived){
+  card.innerHTML='<h3>Shopping list deleted</h3><button class="alt" type="button" data-ps-shop="restart">Create new shopping list</button>';
+ }else{
+  const pending=rows.filter(r=>!state.bought[r.key]),bought=rows.filter(r=>state.bought[r.key]);
+  card.innerHTML='<div class="row"><h3>Items to buy</h3><span class="pill">'+bought.length+' of '+rows.length+' bought</span></div>'+
+   (pending.length?psCategoryMarkup(pending,'pending'):'<p class="muted">'+(psMasterShopping&&!psSelectedJobs().length?'Select events or orders above.':'Nothing currently needs purchasing.')+'</p>')+
+   (bought.length?'<details><summary>Purchased ('+bought.length+')</summary>'+psCategoryMarkup(bought,'bought')+'</details>':'')+
+   (rows.length&&!pending.length?'<div class="actions"><button type="button" class="danger" data-ps-shop="delete">Delete completed list</button></div>':'')+
+   '<p class="muted small">Marking an item bought does not change stock. Add to stock only when the purchase is received.</p>';
+ }
+ card.onclick=function(e){
+  const btn=e.target.closest('button[data-ps-shop]');if(!btn)return;
+  const action=btn.dataset.psShop,row=rows.find(r=>r.key===btn.dataset.key);
+  if(action==='add'){
+   if(psMasterShopping){
+    // receiveOpen resolves through receiptRows; temporarily supply the master rows without changing stock.
+    const currentReceiptRows=receiptRows;
+    receiptRows=function(){return rows};
+    try{receiveOpen(btn.dataset.key)}finally{receiptRows=currentReceiptRows}
+   }else receiveOpen(btn.dataset.key);
+   return;
+  }
+  if(action==='restart'){d.shoppingChecklists[key]={bought:{},archived:false};save();renderShopping();return}
+  if(action==='delete'){
+   if(!confirm('Delete this completed checklist? Inventory and plans will remain unchanged.'))return;
+   d.shoppingChecklists[key]={bought:{},archived:true};save();renderShopping();return;
+  }
+  if(action==='bought'&&row){state.bought[row.key]={name:row.name,id:row.id,unit:row.unit,need:row.need};d.shoppingChecklists[key]=state;save();renderShopping();return}
+  if(action==='undo'){delete state.bought[btn.dataset.key];d.shoppingChecklists[key]=state;save();renderShopping()}
+ };
+};
+const psPreviousCopyShop=copyShop;
+copyShop=function(){
+ const state=d.shoppingChecklists[shopKey()]||{bought:{},archived:false};
+ if(state.archived)return alert('Create a new list before copying.');
+ const rows=shopNeeds().filter(r=>!state.bought[r.key]).map(r=>({...r,category:psShopCategory(r)}));
+ const categories=['Baking & Dry Goods','Dairy & Refrigerated','Candy & Decorations','Packaging & Supplies','Other / Uncategorized'];
+ const content=(psMasterShopping?'Master Shopping List':shopCurrentPlan()?.name||'General Restock')+'\n'+
+ [...categories,...new Set(rows.map(r=>r.category).filter(c=>!categories.includes(c)))].map(c=>{
+  const group=rows.filter(r=>r.category===c);
+  return group.length?'\n'+c+'\n'+group.map(r=>r.name+' — '+r.need).join('\n'):'';
+ }).join('\n');
+ if(navigator.clipboard?.writeText)navigator.clipboard.writeText(content).then(()=>alert('Copied')).catch(()=>prompt('Copy list:',content));else prompt('Copy list:',content);
+};
+
 try{render();psWelcomeFirstLaunch()}catch(psError){window.psShowStartupError?.(psError?.stack||psError?.message||psError);psEmergencyRecovery(psError)}if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.warn));</script></body></html>
